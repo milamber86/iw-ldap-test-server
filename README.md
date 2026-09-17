@@ -36,8 +36,8 @@ source ~/ansible-venv/bin/activate
 ```bash
 cp group_vars/all/vault.yml.example group_vars/all/vault.yml
 # edit Directory Manager / bind / fixture user passwords
+echo 'your-vault-password' > ~/.vault_password.txt
 ansible-vault encrypt group_vars/all/vault.yml
-echo 'your-vault-password' > ../.vault-pass
 ```
 
 `deploy.sh` passes `--vault-password-file=../.vault-pass` when that file exists. `vault.yml` is gitignored. For an unencrypted lab copy, skip `ansible-vault encrypt`.
