@@ -1,0 +1,123 @@
+---
+- name: Check if the VPS is running
+  community.libvirt.virt:
+    name: "{{ HYPERVISOR_VM_PREFIX }}_{{ VM_NAME }}"
+    command: status
+  delegate_to: "{{ HYPERVISOR_IP }}"
+  failed_when: false
+  register: vps_status
+  throttle: 1
+
+- name: Stop virtuals before undefining them
+  community.libvirt.virt:
+    command: destroy
+    name: "{{ HYPERVISOR_VM_PREFIX }}_{{ VM_NAME }}"
+  delegate_to: "{{ HYPERVISOR_IP }}"
+  register: virsh_destroy_result
+  ignore_errors: true
+  failed_when:
+    - virsh_destroy_result is failed
+    - "'not found' not in virsh_destroy_result.msg | default('')"
+    - "'domain is not running' not in virsh_destroy_result.msg | default('')"
+  throttle: 1
+
+- name: Delete virtuals before creating new ones using libvirt
+  community.libvirt.virt:
+    command: undefine
+    name: "{{ HYPERVISOR_VM_PREFIX }}_{{ VM_NAME }}"
+  delegate_to: "{{ HYPERVISOR_IP }}"
+  register: virsh_undefine_result
+  ignore_errors: true
+  failed_when:
+    - virsh_undefine_result is failed
+    - "'not found' not in virsh_undefine_result.msg | default('')"
+  throttle: 1
+
+- name: Delete old VDIs from the store
+  ansible.builtin.shell: "rm -f /kvmstore/vol_{{ HYPERVISOR_VM_PREFIX }}_{{ VM_NAME }}"
+  delegate_to: "{{ HYPERVISOR_IP }}"
+  failed_when: false
+  throttle: 1
+
+- name: Construct DHCP IP reservation string for MANAGEMENT VLAN
+  ansible.builtin.set_fact:
+    MGMT_RESERVATION: "dhcp-host={{ VM_IF_MGMT_MAC }},{{ VM_NAME }},{{ VM_IF_MGMT_IP }},120m"
+
+- name: Create static IP DHCP reservation for MANAGEMENT VLAN in /etc/dnsmasq.conf
+  ansible.builtin.lineinfile:
+    path: /etc/dnsmasq.conf
+    insertafter: 'log-dhcp'
+    line: "{{ MGMT_RESERVATION }}"
+  delegate_to: "{{ HYPERVISOR_IP }}"
+  throttle: 1
+
+- name: Remove previous leases file of the dnsmasq
+  ansible.builtin.shell: rm -f /var/lib/dnsmasq/dnsmasq.leases
+  delegate_to: "{{ HYPERVISOR_IP }}"
+  run_once: true
+
+- name: Restart dnsmasq service to apply /etc/dnsmasq.conf changes
+  ansible.builtin.service:
+    name: dnsmasq
+    state: restarted
+  delegate_to: "{{ HYPERVISOR_IP }}"
+  run_once: true
+
+- name: Copy virtual server VDI from the template
+  ansible.builtin.shell: "cp -f /kvmstore/templates/{{ HYPERVISOR_TEMPLATE_NAME }} /kvmstore/vol_{{ HYPERVISOR_VM_PREFIX }}_{{ VM_NAME }}"
+  delegate_to: "{{ HYPERVISOR_IP }}"
+  throttle: 1
+
+- name: Create new VPS using libvirt
+  community.libvirt.virt:
+    command: define
+    xml: "{{ lookup('template', 'vm_template.xml.j2') }}"
+    autostart: true
+  delegate_to: "{{ HYPERVISOR_IP }}"
+  throttle: 1
+
+- name: Start the new VPS using libvirt
+  community.libvirt.virt:
+    name: "{{ HYPERVISOR_VM_PREFIX }}_{{ VM_NAME }}"
+    state: running
+  delegate_to: "{{ HYPERVISOR_IP }}"
+  throttle: 1
+
+- name: Wait 600 seconds for ssh
+  ansible.builtin.wait_for_connection:
+    timeout: 600
+
+- name: Refresh facts
+  ansible.builtin.setup:
+
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ VM_NAME }}"
+    use: systemd
+
+- name: Make sure the NetworkManager service is started
+  ansible.builtin.service:
+    name: NetworkManager
+    state: started
+    enabled: true
+
+- name: Wait until mgmt NIC has an IPv4 address
+  ansible.builtin.shell: |
+    set -e
+    ip -4 -o addr show dev "{{ IFNAME_MGMT }}" | grep -q ' inet '
+  register: kvmvps_iface_ready
+  retries: 60
+  delay: 2
+  until: kvmvps_iface_ready.rc == 0
+  changed_when: false
+
+- name: Refresh facts after NIC has IPv4
+  ansible.builtin.setup:
+
+- name: Print mgmt interface config
+  ansible.builtin.debug:
+    msg: >-
+      {{ lookup('vars', 'ansible_' ~ IFNAME_MGMT).device }}
+      active: {{ lookup('vars', 'ansible_' ~ IFNAME_MGMT).active }}
+      IP_MGMT: {{ lookup('vars', 'ansible_' ~ IFNAME_MGMT).ipv4.address }}
+      MAC_MGMT: {{ lookup('vars', 'ansible_' ~ IFNAME_MGMT).macaddress }}

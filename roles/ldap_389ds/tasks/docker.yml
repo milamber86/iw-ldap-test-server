@@ -1,0 +1,118 @@
+---
+- name: Docker engine must be available for containerized 389-ds
+  ansible.builtin.command: docker info
+  register: ldap_docker_info
+  changed_when: false
+  failed_when: ldap_docker_info.rc != 0
+
+- name: Install LDAP client libraries on EL9 Docker hosts
+  ansible.builtin.dnf:
+    name:
+      - openldap-clients
+      - python3-ldap
+      - python3-pip
+    state: present
+  when:
+    - ansible_os_family == 'RedHat'
+    - ansible_distribution_major_version | string == '9'
+
+- name: Install python-ldap when dnf packages are unavailable
+  ansible.builtin.pip:
+    name: python-ldap
+  when: not (ansible_os_family == 'RedHat' and ansible_distribution_major_version | string == '9')
+
+- name: Ensure 389-ds container data directory exists
+  ansible.builtin.file:
+    path: "{{ ldap_container_data_dir }}"
+    state: directory
+    owner: 389
+    group: 389
+    mode: "0770"
+
+- name: Run 389 Directory Server container
+  community.docker.docker_container:
+    name: "{{ ldap_container_name }}"
+    image: "{{ ldap_container_image }}"
+    state: started
+    restart_policy: unless-stopped
+    published_ports:
+      - "{{ ldap_port }}:3389"
+      - "{{ ldap_ldaps_port }}:3636"
+    volumes:
+      - "{{ ldap_container_data_dir }}:/data:Z"
+    env:
+      DS_DM_PASSWORD: "{{ LDAP_DM_PASSWORD }}"
+      DS_SUFFIX_NAME: "{{ ldap_base_dn }}"
+  no_log: true
+
+- name: Wait for container LDAP port mapping
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ ldap_port }}"
+    timeout: "{{ ldap_health_timeout }}"
+
+- name: Wait until dsconf answers inside the container
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ ldap_container_name }}"
+      - dsconf
+      - "-D"
+      - "{{ ldap_root_dn }}"
+      - "-w"
+      - "{{ LDAP_DM_PASSWORD }}"
+      - ldap://localhost:3389
+      - backend
+      - suffix
+      - list
+  register: dsconf_suffix_list
+  retries: 30
+  delay: 4
+  until: dsconf_suffix_list.rc == 0
+  changed_when: false
+  no_log: true
+
+- name: Create suffix backend in the container
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ ldap_container_name }}"
+      - dsconf
+      - "-D"
+      - "{{ ldap_root_dn }}"
+      - "-w"
+      - "{{ LDAP_DM_PASSWORD }}"
+      - ldap://localhost:3389
+      - backend
+      - create
+      - "--suffix={{ ldap_base_dn }}"
+      - "--be-name=userroot"
+      - "--create-suffix"
+  register: dsconf_backend_create
+  changed_when: dsconf_backend_create.rc == 0
+  failed_when:
+    - dsconf_backend_create.rc != 0
+    - "'already exists' not in (dsconf_backend_create.stderr | default('') ~ dsconf_backend_create.stdout | default(''))"
+    - "'exists' not in (dsconf_backend_create.stderr | default('') ~ dsconf_backend_create.stdout | default('') | lower)"
+  when: ldap_base_dn not in (dsconf_suffix_list.stdout | default(''))
+  no_log: true
+
+- name: Check if firewalld is running
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+  register: firewalld_status
+  failed_when: false
+
+- name: Allow LDAP ports in firewalld
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - "{{ ldap_port }}/tcp"
+    - "{{ ldap_ldaps_port }}/tcp"
+  when: (firewalld_status.state | default('')) == 'started'

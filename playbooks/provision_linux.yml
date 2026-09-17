@@ -1,0 +1,11 @@
+---
+# Prepared hosts: no KVM work. ldap_hosts must already be reachable.
+- name: Skip KVM provision
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Prepared-host mode
+      ansible.builtin.debug:
+        msg: >-
+          cluster_platform=linux — skipping KVM VM create.
+          Using existing ldap_hosts from inventory.

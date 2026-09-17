@@ -1,0 +1,3 @@
+---
+icewarp_adsync_logtype: 3
+icewarp_restart_args: "--restart control"

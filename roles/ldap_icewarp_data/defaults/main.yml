@@ -1,0 +1,44 @@
+---
+ldap_local_uri: "{{ ldap_uri_scheme }}://127.0.0.1:{{ ldap_listen_port }}"
+ldap_fixture_users:
+  - uid: alice
+    givenName: Alice
+    sn: Anderson
+    title: Account Manager
+    telephoneNumber: "+4205550001"
+    mail: "alice@{{ ldap_mail_domain }}"
+  - uid: bob
+    givenName: Bob
+    sn: Baker
+    title: Sales Engineer
+    telephoneNumber: "+4205550002"
+    mail: "bob@{{ ldap_mail_domain }}"
+  - uid: carol
+    givenName: Carol
+    sn: Clark
+    title: Developer
+    telephoneNumber: "+4205550003"
+    mail: "carol@{{ ldap_mail_domain }}"
+  - uid: dave
+    givenName: Dave
+    sn: Davis
+    title: Developer
+    telephoneNumber: "+4205550004"
+    mail: "dave@{{ ldap_mail_domain }}"
+  - uid: nomail
+    givenName: No
+    sn: Mail
+    title: Filter Demo
+    telephoneNumber: "+4205550000"
+    mail: ""
+ldap_fixture_groups:
+  - cn: sales
+    mail: "sales@{{ ldap_mail_domain }}"
+    members:
+      - alice
+      - bob
+  - cn: engineering
+    mail: "engineering@{{ ldap_mail_domain }}"
+    members:
+      - carol
+      - dave

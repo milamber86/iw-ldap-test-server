@@ -1,0 +1,28 @@
+# Secrets and runtime credentials
+.vault-pass
+*.vault-pass
+group_vars/all/vault.yml
+group_vars/all/vault.yml.local.bak
+**/group_vars/**/vault.yml
+!**/vault.yml.example
+credentials.txt
+**/credentials.txt
+
+# Ansible
+*.retry
+.ansible/
+.ansible-tmp/
+
+# Runtime / local artifacts
+**/.deploy-state
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*.log
+.history/
+.env
+.env.*

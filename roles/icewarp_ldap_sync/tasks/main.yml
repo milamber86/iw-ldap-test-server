@@ -1,0 +1,115 @@
+---
+- name: Require IceWarp LDAP connection settings
+  ansible.builtin.assert:
+    that:
+      - ldap_mail_domain | length > 0
+      - ldap_host | length > 0
+      - ldap_bind_dn | length > 0
+      - LDAP_BIND_PASSWORD is defined
+      - LDAP_BIND_PASSWORD | length > 0
+    fail_msg: >-
+      IceWarp sync needs ldap_mail_domain, ldap_host (ldap_hosts in inventory),
+      ldap_bind_dn, and LDAP_BIND_PASSWORD.
+
+- name: Check IceWarp tool.sh
+  ansible.builtin.stat:
+    path: "{{ TOOL_CMD }}"
+  register: icewarp_tool
+
+- name: Fail when IceWarp is not installed
+  ansible.builtin.fail:
+    msg: "IceWarp tool.sh not found at {{ TOOL_CMD }}. This role configures an existing IceWarp server."
+  when: not icewarp_tool.stat.exists
+
+- name: Create IceWarp domain
+  ansible.builtin.command:
+    argv:
+      - "{{ TOOL_CMD }}"
+      - create
+      - domain
+      - "{{ ldap_mail_domain }}"
+  register: iw_create_domain
+  changed_when: iw_create_domain.rc == 0
+  failed_when:
+    - iw_create_domain.rc != 0
+    - "'already exists' not in (iw_create_domain.stdout ~ iw_create_domain.stderr)"
+
+- name: Template syncad domain fragment
+  ansible.builtin.template:
+    src: syncad-domain.xml.j2
+    dest: /tmp/iw-ldap-syncad-domain.xml
+    mode: "0600"
+  no_log: true
+
+- name: Copy syncad merge helper
+  ansible.builtin.copy:
+    src: merge_syncad.py
+    dest: /tmp/iw-ldap-merge-syncad.py
+    mode: "0755"
+
+- name: Merge domain into syncad.dat
+  ansible.builtin.command:
+    argv:
+      - python3
+      - /tmp/iw-ldap-merge-syncad.py
+      - "{{ IW_CONFIG_PATH }}/syncad.dat"
+      - /tmp/iw-ldap-syncad-domain.xml
+      - "{{ ldap_mail_domain }}"
+
+- name: Set syncad.dat permissions
+  ansible.builtin.file:
+    path: "{{ IW_CONFIG_PATH }}/syncad.dat"
+    owner: icewarp
+    group: icewarp
+    mode: "0644"
+  failed_when: false
+
+- name: Enable verbose ADSync logging
+  ansible.builtin.command:
+    argv:
+      - "{{ TOOL_CMD }}"
+      - set
+      - system
+      - c_system_adsynclogtype
+      - "{{ icewarp_adsync_logtype }}"
+
+- name: Keep vCard/versit sync enabled
+  ansible.builtin.command:
+    argv:
+      - "{{ TOOL_CMD }}"
+      - set
+      - system
+      - c_system_adsyncdisablevcardsync
+      - "0"
+
+- name: Restart IceWarp control to load directory sync
+  ansible.builtin.command:
+    argv:
+      - "{{ IW_INSTALL_PATH }}/icewarpd.sh"
+      - "--restart"
+      - control
+  register: iw_restart_control
+  failed_when: false
+
+- name: Restart all IceWarp services if control restart failed
+  ansible.builtin.command:
+    argv:
+      - "{{ IW_INSTALL_PATH }}/icewarpd.sh"
+      - "--restart"
+      - all
+  when: iw_restart_control.rc | default(1) != 0
+
+- name: Remove temporary syncad fragment
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/iw-ldap-syncad-domain.xml
+    - /tmp/iw-ldap-merge-syncad.py
+
+- name: Show IceWarp sync summary
+  ansible.builtin.debug:
+    msg: >-
+      Domain {{ ldap_mail_domain }} syncs one-way from {{ icewarp_ldap_url }}
+      ({{ ldap_bind_dn }}). Synced accounts get u_authmode=2 (LDAP bind).
+      IceWarp polls about every five minutes; logs under {{ IW_INSTALL_PATH }}/logs/adsync/.

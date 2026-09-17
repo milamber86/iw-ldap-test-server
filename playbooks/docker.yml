@@ -1,0 +1,6 @@
+---
+- name: Install Docker CE on LDAP hosts
+  hosts: ldap_hosts
+  remote_user: root
+  roles:
+    - role: docker

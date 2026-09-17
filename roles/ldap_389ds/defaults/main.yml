@@ -1,0 +1,7 @@
+---
+ldap_install_mode: native
+ldap_instance_name: ldaptest
+ldap_container_image: quay.io/389ds/dirsrv:latest
+ldap_container_name: dirsrv
+ldap_container_data_dir: /var/lib/ldap-test/data
+ldap_health_timeout: 180

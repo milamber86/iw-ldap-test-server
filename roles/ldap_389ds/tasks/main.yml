@@ -1,0 +1,31 @@
+---
+- name: Require Directory Manager password
+  ansible.builtin.assert:
+    that:
+      - LDAP_DM_PASSWORD is defined
+      - LDAP_DM_PASSWORD | length > 0
+    fail_msg: "Set LDAP_DM_PASSWORD in group_vars/all/vault.yml"
+
+- name: Validate ldap_install_mode
+  ansible.builtin.assert:
+    that:
+      - ldap_install_mode in ['native', 'docker']
+    fail_msg: "ldap_install_mode must be 'native' or 'docker' (got {{ ldap_install_mode }})"
+
+- name: Install 389 Directory Server natively
+  ansible.builtin.include_tasks: native.yml
+  when: ldap_install_mode == 'native'
+
+- name: Install 389 Directory Server in Docker
+  ansible.builtin.include_tasks: docker.yml
+  when: ldap_install_mode == 'docker'
+
+- name: Wait for LDAP port on localhost
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ ldap_port }}"
+    timeout: "{{ ldap_health_timeout }}"
+
+- name: Publish LDAP connection facts
+  ansible.builtin.set_fact:
+    ldap_local_uri: "{{ ldap_uri_scheme }}://127.0.0.1:{{ ldap_listen_port }}"

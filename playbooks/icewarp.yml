@@ -1,0 +1,7 @@
+---
+# No-op when icewarp_hosts is empty (no hosts matched).
+- name: Configure IceWarp directory sync and LDAP authentication
+  hosts: icewarp_hosts
+  remote_user: root
+  roles:
+    - role: icewarp_ldap_sync

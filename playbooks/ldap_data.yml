@@ -1,0 +1,6 @@
+---
+- name: Load IceWarp LDAP fixture data
+  hosts: ldap_hosts
+  remote_user: root
+  roles:
+    - role: ldap_icewarp_data

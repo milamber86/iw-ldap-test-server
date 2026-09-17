@@ -1,0 +1,7 @@
+---
+# kvmvps expects HYPERVISOR_IP, HYPERVISOR_VM_PREFIX, HYPERVISOR_TEMPLATE_NAME,
+# and per-host VM_NAME / VM_IF_MGMT_IP / VM_IF_MGMT_MAC in inventory.
+cluster_platform: kvm
+IFNAME_MGMT: enp1s0
+VM_MEM_KB: 2097152
+VM_CPU_COUNT: 2

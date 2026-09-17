@@ -1,0 +1,6 @@
+---
+- name: Install 389 Directory Server
+  hosts: ldap_hosts
+  remote_user: root
+  roles:
+    - role: ldap_389ds

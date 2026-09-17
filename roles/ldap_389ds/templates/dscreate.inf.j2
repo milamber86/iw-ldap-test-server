@@ -1,0 +1,18 @@
+[general]
+config_version = 2
+full_machine_name = {{ ansible_fqdn | default(inventory_hostname, true) }}
+strict_host_checking = False
+
+[slapd]
+instance_name = {{ ldap_instance_name }}
+port = {{ ldap_port }}
+secure_port = {{ ldap_ldaps_port }}
+root_dn = {{ ldap_root_dn }}
+root_password = {{ LDAP_DM_PASSWORD }}
+self_sign_cert = True
+start = True
+
+[backend-userroot]
+suffix = {{ ldap_base_dn }}
+create_suffix_entry = True
+sample_entries = no

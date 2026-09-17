@@ -1,0 +1,9 @@
+---
+# KVM lab: clone QEMU image and create the LDAP VM on the Infralab hypervisor.
+- name: Clone QEMU image and create LDAP VM on KVM lab
+  hosts: ldap_hosts
+  remote_user: root
+  gather_facts: false
+  roles:
+    - role: kvmvps
+      when: (cluster_platform | default('kvm')) == 'kvm'

@@ -1,0 +1,230 @@
+---
+- name: Require LDAP bind and user passwords
+  ansible.builtin.assert:
+    that:
+      - LDAP_DM_PASSWORD is defined
+      - LDAP_DM_PASSWORD | length > 0
+      - LDAP_BIND_PASSWORD is defined
+      - LDAP_BIND_PASSWORD | length > 0
+      - LDAP_USER_PASSWORD is defined
+      - LDAP_USER_PASSWORD | length > 0
+    fail_msg: "Set LDAP_DM_PASSWORD, LDAP_BIND_PASSWORD, and LDAP_USER_PASSWORD in vault.yml"
+
+- name: Ensure python-ldap is available for community.general LDAP modules
+  ansible.builtin.dnf:
+    name: python3-ldap
+    state: present
+  when:
+    - ansible_os_family == 'RedHat'
+    - ansible_distribution_major_version | string == '9'
+
+- name: Wait for directory to accept binds
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ ldap_port }}"
+    timeout: 60
+
+- name: Ensure suffix entry exists
+  community.general.ldap_entry:
+    server_uri: "{{ ldap_local_uri }}"
+    bind_dn: "{{ ldap_root_dn }}"
+    bind_pw: "{{ LDAP_DM_PASSWORD }}"
+    dn: "{{ ldap_base_dn }}"
+    objectClass:
+      - dcObject
+      - organization
+      - top
+    attributes:
+      dc: "{{ ldap_base_dn.split(',')[0].split('=')[1] }}"
+      o: "{{ ldap_mail_domain }}"
+    state: present
+  register: ldap_suffix_entry
+  failed_when: false
+
+- name: Ensure organizational units
+  community.general.ldap_entry:
+    server_uri: "{{ ldap_local_uri }}"
+    bind_dn: "{{ ldap_root_dn }}"
+    bind_pw: "{{ LDAP_DM_PASSWORD }}"
+    dn: "{{ item.dn }}"
+    objectClass:
+      - organizationalUnit
+      - top
+    attributes:
+      ou: "{{ item.ou }}"
+    state: present
+  loop:
+    - { dn: "{{ ldap_people_ou }}", ou: people }
+    - { dn: "{{ ldap_groups_ou }}", ou: groups }
+    - { dn: "{{ ldap_services_ou }}", ou: services }
+
+- name: Ensure IceWarp bind account
+  community.general.ldap_entry:
+    server_uri: "{{ ldap_local_uri }}"
+    bind_dn: "{{ ldap_root_dn }}"
+    bind_pw: "{{ LDAP_DM_PASSWORD }}"
+    dn: "{{ ldap_bind_dn }}"
+    objectClass:
+      - inetOrgPerson
+      - organizationalPerson
+      - person
+      - top
+    attributes:
+      uid: iwsync
+      cn: IceWarp LDAP Sync
+      sn: Sync
+      givenName: IceWarp
+      displayName: IceWarp LDAP Sync
+      userPassword: "{{ LDAP_BIND_PASSWORD }}"
+    state: present
+  no_log: true
+
+- name: Update IceWarp bind account attributes
+  community.general.ldap_attrs:
+    server_uri: "{{ ldap_local_uri }}"
+    bind_dn: "{{ ldap_root_dn }}"
+    bind_pw: "{{ LDAP_DM_PASSWORD }}"
+    dn: "{{ ldap_bind_dn }}"
+    state: exact
+    attributes:
+      uid: iwsync
+      cn: IceWarp LDAP Sync
+      sn: Sync
+      givenName: IceWarp
+      displayName: IceWarp LDAP Sync
+      userPassword: "{{ LDAP_BIND_PASSWORD }}"
+  no_log: true
+
+- name: Ensure fixture people
+  community.general.ldap_entry:
+    server_uri: "{{ ldap_local_uri }}"
+    bind_dn: "{{ ldap_root_dn }}"
+    bind_pw: "{{ LDAP_DM_PASSWORD }}"
+    dn: "uid={{ item.uid }},{{ ldap_people_ou }}"
+    objectClass:
+      - inetOrgPerson
+      - organizationalPerson
+      - person
+      - top
+    attributes: "{{ _person_attrs }}"
+    state: present
+  loop: "{{ ldap_fixture_users }}"
+  vars:
+    _person_base:
+      uid: "{{ item.uid }}"
+      cn: "{{ item.givenName }} {{ item.sn }}"
+      sn: "{{ item.sn }}"
+      givenName: "{{ item.givenName }}"
+      displayName: "{{ item.givenName }} {{ item.sn }}"
+      title: "{{ item.title }}"
+      telephoneNumber: "{{ item.telephoneNumber }}"
+      userPassword: "{{ LDAP_USER_PASSWORD }}"
+    _person_attrs: "{{ _person_base | combine({'mail': item.mail} if item.mail | length > 0 else {}) }}"
+  no_log: true
+
+- name: Update fixture people attributes
+  community.general.ldap_attrs:
+    server_uri: "{{ ldap_local_uri }}"
+    bind_dn: "{{ ldap_root_dn }}"
+    bind_pw: "{{ LDAP_DM_PASSWORD }}"
+    dn: "uid={{ item.uid }},{{ ldap_people_ou }}"
+    state: exact
+    attributes: "{{ _person_attrs }}"
+  loop: "{{ ldap_fixture_users }}"
+  vars:
+    _person_base:
+      uid: "{{ item.uid }}"
+      cn: "{{ item.givenName }} {{ item.sn }}"
+      sn: "{{ item.sn }}"
+      givenName: "{{ item.givenName }}"
+      displayName: "{{ item.givenName }} {{ item.sn }}"
+      title: "{{ item.title }}"
+      telephoneNumber: "{{ item.telephoneNumber }}"
+      userPassword: "{{ LDAP_USER_PASSWORD }}"
+    _person_attrs: "{{ _person_base | combine({'mail': item.mail} if item.mail | length > 0 else {}) }}"
+  no_log: true
+
+- name: Ensure fixture groups
+  community.general.ldap_entry:
+    server_uri: "{{ ldap_local_uri }}"
+    bind_dn: "{{ ldap_root_dn }}"
+    bind_pw: "{{ LDAP_DM_PASSWORD }}"
+    dn: "cn={{ item.cn }},{{ ldap_groups_ou }}"
+    objectClass:
+      - groupOfNames
+      - top
+    attributes:
+      cn: "{{ item.cn }}"
+      mail: "{{ item.mail }}"
+      member: "{{ item.members | map('regex_replace', '^(.*)$', 'uid=\\1,' + ldap_people_ou) | list }}"
+    state: present
+  loop: "{{ ldap_fixture_groups }}"
+
+- name: Update fixture group attributes
+  community.general.ldap_attrs:
+    server_uri: "{{ ldap_local_uri }}"
+    bind_dn: "{{ ldap_root_dn }}"
+    bind_pw: "{{ LDAP_DM_PASSWORD }}"
+    dn: "cn={{ item.cn }},{{ ldap_groups_ou }}"
+    state: exact
+    attributes:
+      cn: "{{ item.cn }}"
+      mail: "{{ item.mail }}"
+      member: "{{ item.members | map('regex_replace', '^(.*)$', 'uid=\\1,' + ldap_people_ou) | list }}"
+  loop: "{{ ldap_fixture_groups }}"
+
+- name: Read suffix ACIs
+  community.general.ldap_search:
+    server_uri: "{{ ldap_local_uri }}"
+    bind_dn: "{{ ldap_root_dn }}"
+    bind_pw: "{{ LDAP_DM_PASSWORD }}"
+    dn: "{{ ldap_base_dn }}"
+    scope: base
+    filter: "(objectClass=*)"
+    attrs:
+      - aci
+  register: ldap_suffix_aci
+  failed_when: false
+  no_log: true
+
+- name: Grant iwsync read/search on the suffix
+  community.general.ldap_attrs:
+    server_uri: "{{ ldap_local_uri }}"
+    bind_dn: "{{ ldap_root_dn }}"
+    bind_pw: "{{ LDAP_DM_PASSWORD }}"
+    dn: "{{ ldap_base_dn }}"
+    state: present
+    attributes:
+      aci:
+        - >-
+          (targetattr="* || entryUUID || modifyTimestamp || nsUniqueId || createTimestamp")
+          (version 3.0; acl "iwsync-read"; allow (read,search,compare)
+          userdn="ldap:///{{ ldap_bind_dn }}";)
+  when: ldap_suffix_aci.results | default([]) | to_json is not search('iwsync-read')
+  no_log: true
+
+- name: Verify iwsync can search people
+  ansible.builtin.command:
+    argv:
+      - ldapsearch
+      - "-x"
+      - "-H"
+      - "{{ ldap_local_uri }}"
+      - "-D"
+      - "{{ ldap_bind_dn }}"
+      - "-w"
+      - "{{ LDAP_BIND_PASSWORD }}"
+      - "-b"
+      - "{{ ldap_people_ou }}"
+      - "(objectClass=inetOrgPerson)"
+      - uid
+      - mail
+      - entryUUID
+      - modifyTimestamp
+  register: ldap_verify_search
+  changed_when: false
+  no_log: true
+
+- name: Show fixture search summary
+  ansible.builtin.debug:
+    msg: "LDAP fixture loaded under {{ ldap_base_dn }} (bind {{ ldap_bind_dn }})"

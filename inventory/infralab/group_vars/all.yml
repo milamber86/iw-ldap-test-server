@@ -1,0 +1,18 @@
+---
+# Infralab site. Primary: prepared EL9 hosts (cluster_platform: linux).
+# Optional KVM VM create: PLATFORM=kvm ./deploy.sh after filling IP/MAC in hosts.yml.
+cluster_platform: linux
+ldap_install_mode: native
+
+ldap_mail_domain: ldaptest.loc
+ldap_base_dn: dc=ldaptest,dc=loc
+
+# q35 virtio NIC name on Infralab AlmaLinux 9 template (single mgmt NIC).
+IFNAME_MGMT: enp1s0
+
+HYPERVISOR_IP: "185.138.220.201"
+HYPERVISOR_VM_PREFIX: "L3_LDAP_TEST"
+HYPERVISOR_TEMPLATE_NAME: "tpl_L1_OB_almalinux9.qcow2"
+
+VM_MEM_KB: 2097152
+VM_CPU_COUNT: 2

@@ -1,0 +1,67 @@
+---
+- name: Native 389-ds requires EL9
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'RedHat'
+      - ansible_distribution_major_version | string == '9'
+    fail_msg: >-
+      Native 389-ds install requires EL9.
+      Use LDAP_MODE=docker on this host, or provision an EL9 VM.
+
+- name: Install 389-ds packages
+  ansible.builtin.dnf:
+    name:
+      - 389-ds-base
+      - openldap-clients
+      - python3-ldap
+    state: present
+
+- name: List existing 389-ds instances
+  ansible.builtin.command: dsctl -l
+  register: dsctl_list
+  changed_when: false
+  failed_when: false
+
+- name: Template dscreate INF
+  ansible.builtin.template:
+    src: dscreate.inf.j2
+    dest: "/root/{{ ldap_instance_name }}.inf"
+    owner: root
+    group: root
+    mode: "0600"
+  when: ldap_instance_name not in (dsctl_list.stdout | default(''))
+  no_log: true
+
+- name: Create 389-ds instance
+  ansible.builtin.command: "dscreate from-file /root/{{ ldap_instance_name }}.inf"
+  when: ldap_instance_name not in (dsctl_list.stdout | default(''))
+  no_log: true
+
+- name: Remove dscreate INF with Directory Manager password
+  ansible.builtin.file:
+    path: "/root/{{ ldap_instance_name }}.inf"
+    state: absent
+
+- name: Enable and start 389-ds instance
+  ansible.builtin.service:
+    name: "dirsrv@{{ ldap_instance_name }}"
+    state: started
+    enabled: true
+
+- name: Check if firewalld is running
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+  register: firewalld_status
+  failed_when: false
+
+- name: Allow LDAP ports in firewalld
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - "{{ ldap_port }}/tcp"
+    - "{{ ldap_ldaps_port }}/tcp"
+  when: (firewalld_status.state | default('')) == 'started'

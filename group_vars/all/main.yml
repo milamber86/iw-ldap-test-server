@@ -1,0 +1,42 @@
+---
+# Shared defaults. Site inventory (inventory/<site>/group_vars/) overrides these.
+
+cluster_platform: linux
+ldap_install_mode: native
+
+ldap_mail_domain: ldaptest.loc
+ldap_base_dn: dc=ldaptest,dc=loc
+ldap_instance_name: ldaptest
+ldap_root_dn: cn=Directory Manager
+ldap_port: 389
+ldap_ldaps_port: 636
+ldap_use_ldaps: false
+ldap_container_image: quay.io/389ds/dirsrv:latest
+ldap_container_name: dirsrv
+ldap_container_data_dir: /var/lib/ldap-test/data
+# IceWarp LDAPSERVERTYPE: 0 = Active Directory, 1 = Generic LDAP
+ldap_server_type: 1
+
+ldap_people_ou: "ou=people,{{ ldap_base_dn }}"
+ldap_groups_ou: "ou=groups,{{ ldap_base_dn }}"
+ldap_services_ou: "ou=services,{{ ldap_base_dn }}"
+ldap_bind_dn: "uid=iwsync,{{ ldap_services_ou }}"
+
+ldap_host: "{{ hostvars[groups['ldap_hosts'][0]].ansible_host | default(groups['ldap_hosts'][0]) if (groups['ldap_hosts'] | default([]) | length > 0) else '' }}"
+ldap_uri_scheme: "{{ 'ldaps' if ldap_use_ldaps | bool else 'ldap' }}"
+ldap_listen_port: "{{ ldap_ldaps_port if ldap_use_ldaps | bool else ldap_port }}"
+icewarp_ldap_url: "{{ ldap_uri_scheme }}://{{ ldap_host }}:{{ ldap_listen_port }}"
+
+IW_INSTALL_PATH: /opt/icewarp
+TOOL_CMD: "{{ IW_INSTALL_PATH }}/tool.sh"
+IW_CONFIG_PATH: "{{ IW_INSTALL_PATH }}/config"
+
+# SSH to managed hosts (vault: ANSIBLE_SSH_* / ANSIBLE_BECOME_*). Default: root + key, no become.
+ansible_user: "{{ ANSIBLE_SSH_USER | default('root') }}"
+ansible_ssh_pass: "{{ ANSIBLE_SSH_PASS if (ANSIBLE_SSH_PASS | default('') | length > 0) else omit }}"
+ansible_become: "{{ (ANSIBLE_SSH_USER | default('root')) != 'root' }}"
+ansible_become_user: root
+ansible_become_method: "{{ 'su' if (ANSIBLE_BECOME_VIA | default('none')) == 'su' else 'sudo' }}"
+ansible_become_flags: "{{ '-' if (ANSIBLE_BECOME_VIA | default('none')) == 'su' else ('su - root /bin/bash -c' if (ANSIBLE_BECOME_VIA | default('none')) == 'sudo_su' else omit) }}"
+ansible_become_pass: "{{ ANSIBLE_BECOME_PASS if (ANSIBLE_BECOME_PASS | default('') | length > 0) else omit }}"
+ansible_pipelining: "{{ not ((ANSIBLE_SSH_PASS | default('') | length > 0) or (ANSIBLE_BECOME_PASS | default('') | length > 0)) }}"

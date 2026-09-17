@@ -1,0 +1,25 @@
+---
+# Ansible Vault template for IceWarp LDAP test lab secrets.
+#
+# Setup:
+#   cp group_vars/all/vault.yml.example group_vars/all/vault.yml
+#   # edit vault.yml
+#   ansible-vault encrypt group_vars/all/vault.yml
+#   # optional: echo 'your-vault-password' > ../.vault-pass   (path used by deploy.sh)
+#
+# Do NOT commit vault.yml (gitignored). This .example file is safe to commit.
+
+# 389 Directory Manager (cn=Directory Manager)
+LDAP_DM_PASSWORD: "ChangeMe-DM-Pass1"
+
+# IceWarp bind account (uid=iwsync,ou=services,...)
+LDAP_BIND_PASSWORD: "ChangeMe-Bind-Pass1"
+
+# Password for fixture inetOrgPerson accounts (alice, bob, carol, dave, nomail)
+LDAP_USER_PASSWORD: "ChangeMe-User-Pass1"
+
+# Optional — Ansible SSH to managed hosts (default: root + key, no become)
+# ANSIBLE_SSH_USER: "root"
+# ANSIBLE_SSH_PASS: ""
+# ANSIBLE_BECOME_VIA: none      # none | sudo_su | su
+# ANSIBLE_BECOME_PASS: ""
