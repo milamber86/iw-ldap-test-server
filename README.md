@@ -40,7 +40,9 @@ echo 'your-vault-password' > ~/.vault_password.txt
 ansible-vault encrypt group_vars/all/vault.yml
 ```
 
-`deploy.sh` passes `--vault-password-file=../.vault-pass` when that file exists. `vault.yml` is gitignored. For an unencrypted lab copy, skip `ansible-vault encrypt`.
+`deploy.sh` passes `--vault-password-file=../.vault-pass` when that file exists; otherwise Ansible uses `vault_password_file` from `ansible.cfg` (`~/.vault_password.txt`). `vault.yml` is gitignored. For an unencrypted lab copy, skip `ansible-vault encrypt`.
+
+Ansible only auto-loads `group_vars` next to the playbook (`playbooks/group_vars`) and next to the inventory. `playbooks/group_vars` is a symlink to repo-root `group_vars/`, so `group_vars/all/vault.yml` and `group_vars/all/main.yml` are actually in the play’s variable path.
 
 ## Inventory
 
