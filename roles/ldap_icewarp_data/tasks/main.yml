@@ -144,37 +144,6 @@
     _person_attrs: "{{ _person_base | combine({'mail': item.mail} if item.mail | length > 0 else {}) }}"
   no_log: true
 
-# #region agent log
-- name: Debug fixture group schema payload
-  ansible.builtin.shell: |
-    python3 - <<'PY'
-    import json, os, time
-    from pathlib import Path
-    rec = {
-        "sessionId": "5bdbb6",
-        "runId": "post-fix",
-        "hypothesisId": "A",
-        "location": "roles/ldap_icewarp_data/tasks/main.yml:groups",
-        "message": "group ldap_entry payload (no secrets)",
-        "data": json.loads(os.environ["DEBUG_DATA"]),
-        "timestamp": int(time.time() * 1000),
-    }
-    log = Path("/Users/otto/Cursor_Repos/iw-ldap-test-server/.cursor/debug-5bdbb6.log")
-    log.parent.mkdir(parents=True, exist_ok=True)
-    with log.open("a") as fh:
-        fh.write(json.dumps(rec) + "\n")
-    PY
-  environment:
-    DEBUG_DATA: "{{ {
-      'objectClass': ['groupOfNames', 'top', 'extensibleObject'],
-      'attr_names': ['cn', 'mail', 'member'],
-      'groups': ldap_fixture_groups | map(attribute='cn') | list
-    } | to_json }}"
-  delegate_to: localhost
-  connection: local
-  changed_when: false
-# #endregion
-
 - name: Ensure fixture groups
   community.general.ldap_entry:
     server_uri: "{{ ldap_local_uri }}"
@@ -191,7 +160,6 @@
       member: "{{ item.members | map('regex_replace', '^(.*)$', 'uid=\\1,' + ldap_people_ou) | list }}"
     state: present
   loop: "{{ ldap_fixture_groups }}"
-  register: ldap_fixture_groups_create
 
 - name: Update fixture group attributes
   community.general.ldap_attrs:
@@ -205,35 +173,6 @@
       mail: "{{ item.mail }}"
       member: "{{ item.members | map('regex_replace', '^(.*)$', 'uid=\\1,' + ldap_people_ou) | list }}"
   loop: "{{ ldap_fixture_groups }}"
-
-# #region agent log
-- name: Debug fixture group create result
-  ansible.builtin.shell: |
-    python3 - <<'PY'
-    import json, os, time
-    from pathlib import Path
-    rec = {
-        "sessionId": "5bdbb6",
-        "runId": "post-fix",
-        "hypothesisId": "A",
-        "location": "roles/ldap_icewarp_data/tasks/main.yml:groups-result",
-        "message": "group ldap_entry result",
-        "data": json.loads(os.environ["DEBUG_DATA"]),
-        "timestamp": int(time.time() * 1000),
-    }
-    log = Path("/Users/otto/Cursor_Repos/iw-ldap-test-server/.cursor/debug-5bdbb6.log")
-    with log.open("a") as fh:
-        fh.write(json.dumps(rec) + "\n")
-    PY
-  environment:
-    DEBUG_DATA: "{{ {
-      'failed': ldap_fixture_groups_create.failed | default(false),
-      'results': ldap_fixture_groups_create.results | default([]) | map(attribute='failed') | list
-    } | to_json }}"
-  delegate_to: localhost
-  connection: local
-  changed_when: false
-# #endregion
 
 - name: Read suffix ACIs
   community.general.ldap_search:
