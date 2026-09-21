@@ -1,0 +1,78 @@
+---
+- name: LDAP localhost smoke test
+  hosts: ldap_hosts
+  remote_user: root
+  ignore_errors: true
+  roles:
+    - role: ldap_smoke
+
+- name: IceWarp localhost smoke test
+  hosts: icewarp_hosts
+  remote_user: root
+  ignore_errors: true
+  roles:
+    - role: icewarp_smoke
+
+- name: Write smoke report on the control node
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  vars:
+    smoke_site: "{{ lookup('ansible.builtin.env', 'SITE') | default('infralab', true) }}"
+    ansible_connection: local
+  tasks:
+    - name: Collect LDAP smoke result
+      ansible.builtin.set_fact:
+        smoke_ldap: "{{ hostvars[_ldap_host].smoke_ldap | default(_ldap_missing) }}"
+      vars:
+        _ldap_host: "{{ (groups['ldap_hosts'] | default([]))[0] | default('') }}"
+        _ldap_missing:
+          ok: false
+          skipped: true
+          error: "No ldap_hosts in inventory"
+
+    - name: Collect IceWarp smoke result
+      ansible.builtin.set_fact:
+        smoke_icewarp: "{{ hostvars[_iw_host].smoke_icewarp | default(_iw_default) }}"
+      vars:
+        _iw_host: "{{ (groups['icewarp_hosts'] | default([]))[0] | default('') }}"
+        _iw_default: "{{ {'ok': true, 'skipped': true, 'error': ''} if (groups['icewarp_hosts'] | default([]) | length) == 0 else {'ok': false, 'skipped': false, 'error': 'IceWarp smoke fact missing'} }}"
+
+    - name: Ensure reports directory
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../reports"
+        state: directory
+        mode: "0755"
+
+    - name: Set smoke report path
+      ansible.builtin.set_fact:
+        smoke_report_path: "{{ ((playbook_dir ~ '/../reports') | realpath) ~ '/smoke-' ~ smoke_site ~ '-' ~ ('%Y%m%d-%H%M%S' | strftime) ~ '.md' }}"
+
+    - name: Write smoke report
+      ansible.builtin.template:
+        src: smoke_report.md.j2
+        dest: "{{ smoke_report_path }}"
+        mode: "0644"
+
+    - name: Record latest report path
+      ansible.builtin.copy:
+        dest: "{{ playbook_dir }}/../reports/.latest"
+        content: "{{ smoke_report_path }}\n"
+        mode: "0644"
+
+    - name: Show smoke report path
+      ansible.builtin.debug:
+        msg: "Smoke report written to {{ smoke_report_path }}"
+
+    - name: Fail when smoke tests did not pass
+      ansible.builtin.fail:
+        msg: >-
+          Smoke tests failed. LDAP ok={{ smoke_ldap.ok | default(false) }}
+          IceWarp ok={{ smoke_icewarp.ok | default(false) }} skipped={{ smoke_icewarp.skipped | default(false) }}.
+          Report: {{ smoke_report_path }}
+      when: >-
+        not (smoke_ldap.ok | default(false) | bool)
+        or (
+          (groups['icewarp_hosts'] | default([]) | length) > 0
+          and not (smoke_icewarp.ok | default(false) | bool)
+        )

@@ -8,7 +8,7 @@ Ansible wrapper that optionally creates an Infralab EL9 VM, installs **389 Direc
 
 | Path | Role |
 |------|------|
-| `deploy.sh` | Staged deploy (`provision` → `docker` → `ldap` → `ldap_data` → `icewarp`) |
+| `deploy.sh` | Staged deploy (`provision` → `docker` → `ldap` → `ldap_data` → `icewarp` → `smoke`) |
 | `prepare_ansible_host.sh` | Control-node venv (`~/ansible-venv`, ansible-core 2.19) |
 | `inventory/infralab/` | Default site: hypervisor, LDAP host, optional IceWarp host |
 | `roles/kvmvps` | Slim single-NIC Infralab KVM clone (mgmt / `vcl2-mon` only) |
@@ -16,6 +16,8 @@ Ansible wrapper that optionally creates an Infralab EL9 VM, installs **389 Direc
 | `roles/ldap_389ds` | Native `dscreate` or `quay.io/389ds/dirsrv` with host ports 389/636 |
 | `roles/ldap_icewarp_data` | Fixture domain, users, groups, `uid=iwsync` bind account |
 | `roles/icewarp_ldap_sync` | Merge IceWarp `syncad.dat` + ADSync logging (existing IceWarp only) |
+| `roles/ldap_smoke` | Localhost `ldapsearch` of domain, users, groups |
+| `roles/icewarp_smoke` | Wait for ADSync finished log, `tool.sh export`, IMAP + WebClient login |
 
 ## Prerequisites
 
@@ -80,6 +82,9 @@ RESUME=1 SITE=infralab ./deploy.sh
 
 # Clear deploy state and run all stages again
 RESET_DEPLOY_STATE=1 SITE=infralab ./deploy.sh
+
+# Smoke tests only (LDAP listing + IceWarp sync wait / IMAP / WebClient)
+SKIP_PROVISION=1 SKIP_DOCKER=1 SKIP_LDAP=1 SKIP_LDAP_DATA=1 SKIP_ICEWARP=1 SITE=infralab ./deploy.sh
 ```
 
 ### Environment flags
@@ -94,6 +99,7 @@ RESET_DEPLOY_STATE=1 SITE=infralab ./deploy.sh
 | `SKIP_LDAP` | Skip 389-ds install |
 | `SKIP_LDAP_DATA` | Skip DIT / fixture users |
 | `SKIP_ICEWARP` | Skip IceWarp `syncad.dat` merge |
+| `SKIP_SMOKE` | Skip LDAP + IceWarp localhost smoke tests |
 | `IW_SYNC_MODE` | `onetoone` (default) or `crossdomain` |
 | `IW_SYNC_DOMAIN` | IceWarp target domain (default: `ldap_mail_domain`; required to differ in `crossdomain`) |
 | `RESUME` | Skip stages listed in `inventory/<SITE>/.deploy-state` |
@@ -155,6 +161,23 @@ IceWarp sets **`u_authmode=2`** (LDAP / Active Directory) on synced accounts. Lo
 Default LDAP URL is `ldap://<ldap_host>:389`. Set `ldap_use_ldaps: true` in group vars to use `ldaps://<ldap_host>:636` (instance self-signed cert).
 
 `ldap_server_type` (IceWarp `LDAPSERVERTYPE`) defaults to **1** (Generic LDAP). Override if a given IceWarp build expects `0`.
+
+## Smoke tests
+
+The `smoke` stage (after IceWarp) lists directory data and checks that synced accounts can authenticate. Re-run it alone with `SKIP_PROVISION=1 SKIP_DOCKER=1 SKIP_LDAP=1 SKIP_LDAP_DATA=1 SKIP_ICEWARP=1`, or `ansible-playbook -i inventory/<site> playbooks/smoke.yml`. `SKIP_SMOKE=1` disables it.
+
+On the LDAP host (`127.0.0.1`): bind as `uid=iwsync` and list the suffix, people, and groups. Expected mail users are alice/bob/carol/dave; expected groups are sales/engineering. `nomail` may appear in LDAP and is not required in IceWarp.
+
+On each IceWarp host:
+
+1. Sets `c_system_adsynclogtype=3`
+2. Reads the node-id prefix from line 4 of `/opt/icewarp/path.dat` (log name e.g. `/opt/icewarp/logs/adsync/303120260921-00.log`)
+3. Restarts IceWarp control and waits (up to ~15 minutes) for a **new** `Synchronizing domain <icewarp_sync_domain> finished` line
+4. `tool.sh export domain` and `tool.sh export account user@domain` for expected users (`u_type=0`, `u_authmode=2`) and groups (`u_type=7`)
+5. IMAP LOGIN as `{uid}@{icewarp_sync_domain}` with `LDAP_USER_PASSWORD` (not admin impersonation)
+6. WebClient login with that same user password: `getauthtoken` on `https://127.0.0.1/icewarpapi/`, then `/webmail/?atoken=` and `webmail.php` session auth
+
+Ansible prints the listings. A Markdown report is always written on the control node under `reports/smoke-<site>-<timestamp>.md`; the play and `deploy.sh` print that path when finished.
 
 ## Out of scope
 

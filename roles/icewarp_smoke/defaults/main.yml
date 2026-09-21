@@ -1,0 +1,17 @@
+---
+icewarp_adsync_logtype: 3
+icewarp_path_dat: "{{ IW_INSTALL_PATH }}/path.dat"
+icewarp_adsync_log_dir: "{{ IW_INSTALL_PATH }}/logs/adsync"
+icewarp_sync_mode: onetoone
+icewarp_sync_domain: "{{ ldap_mail_domain }}"
+icewarp_smoke_wait_retries: 90
+icewarp_smoke_wait_delay: 10
+icewarp_webclient_base: "https://127.0.0.1"
+icewarp_smoke_expected_users:
+  - alice
+  - bob
+  - carol
+  - dave
+icewarp_smoke_expected_groups:
+  - sales
+  - engineering

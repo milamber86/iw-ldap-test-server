@@ -1,0 +1,97 @@
+# LDAP / IceWarp smoke report
+
+- Site: `{{ smoke_site }}`
+- Generated: {{ ansible_date_time.iso8601 }}
+- Control node: {{ ansible_hostname | default('localhost') }}
+
+## Summary
+
+| Check | Result |
+| --- | --- |
+| LDAP | {{ 'PASS' if (smoke_ldap.ok | default(false) | bool) else ('SKIP' if (smoke_ldap.skipped | default(false) | bool) else 'FAIL') }} |
+| IceWarp | {{ 'SKIP' if (smoke_icewarp.skipped | default(false) | bool) else ('PASS' if (smoke_icewarp.ok | default(false) | bool) else 'FAIL') }} |
+
+{% if smoke_ldap.error | default('') %}LDAP error: {{ smoke_ldap.error }}{% endif %}
+
+{% if smoke_icewarp.error | default('') %}IceWarp error: {{ smoke_icewarp.error }}{% endif %}
+
+## LDAP localhost
+
+- Base DN: `{{ smoke_ldap.domain.dn | default('') }}`
+- dc: `{{ smoke_ldap.domain.dc | default('') }}`
+- o: `{{ smoke_ldap.domain.o | default('') }}`
+
+### Users
+
+| uid | cn | mail |
+| --- | --- | --- |
+{% for user in smoke_ldap.users | default([]) %}
+| {{ user.uid }} | {{ user.cn }} | {{ user.mail }} |
+{% else %}
+| — | — | — |
+{% endfor %}
+
+Missing users: {{ smoke_ldap.missing_users | default([]) | join(', ') | default('(none)', true) }}
+
+### Groups
+
+| cn | mail | members |
+| --- | --- | --- |
+{% for group in smoke_ldap.groups | default([]) %}
+| {{ group.cn }} | {{ group.mail }} | {{ group.members | default([]) | join(', ') }} |
+{% else %}
+| — | — | — |
+{% endfor %}
+
+Missing groups: {{ smoke_ldap.missing_groups | default([]) | join(', ') | default('(none)', true) }}
+
+## IceWarp localhost
+
+{% if smoke_icewarp.skipped | default(false) | bool %}
+IceWarp smoke skipped (no `icewarp_hosts` or not run).
+{% else %}
+- Domain: `{{ icewarp_sync_domain | default('') }}`
+- Domain export: {{ 'ok' if (smoke_icewarp.domain_export_ok | default(false) | bool) else 'FAIL' }}
+- ADSync finished: {{ 'ok' if (smoke_icewarp.sync_ok | default(false) | bool) else 'FAIL' }}
+- ADSync log: `{{ smoke_icewarp.sync_log | default('') }}`
+
+```
+{{ smoke_icewarp.sync_line | default('') }}
+```
+
+### Users (`tool.sh export account user@domain`)
+
+| email | export | u_type | u_authmode | IMAP | WebClient |
+| --- | --- | --- | --- | --- | --- |
+{% for user in smoke_icewarp.users | default([]) %}
+| {{ user.email }} | {{ 'ok' if user.export_ok else 'FAIL' }} | {{ user.u_type }} {{ 'ok' if user.type_ok else 'FAIL' }} | {{ user.u_authmode }} {{ 'ok' if user.authmode_ok else 'FAIL' }} | {{ 'ok' if user.imap_ok else 'FAIL' }} | {{ 'ok' if user.webclient_ok else ('FAIL ' ~ (user.webclient_stage | default(''))) }} |
+{% else %}
+| — | — | — | — | — | — |
+{% endfor %}
+
+{% for user in smoke_icewarp.users | default([]) %}
+{% if not user.imap_ok or not user.webclient_ok %}
+- `{{ user.email }}` IMAP: {{ user.imap_error | default('') }} WebClient: {{ user.webclient_error | default('') }}
+{% endif %}
+{% endfor %}
+
+Missing users: {{ smoke_icewarp.missing_users | default([]) | join(', ') | default('(none)', true) }}
+
+### Groups
+
+| email | export | u_type |
+| --- | --- | --- |
+{% for group in smoke_icewarp.groups | default([]) %}
+| {{ group.email }} | {{ 'ok' if group.export_ok else 'FAIL' }} | {{ group.u_type }} {{ 'ok' if group.type_ok else 'FAIL' }} |
+{% else %}
+| — | — | — |
+{% endfor %}
+
+Missing groups: {{ smoke_icewarp.missing_groups | default([]) | join(', ') | default('(none)', true) }}
+
+### Account listing (`u_name,u_type,u_authmode`)
+
+```
+{{ smoke_icewarp.accounts_listing | default('') }}
+```
+{% endif %}

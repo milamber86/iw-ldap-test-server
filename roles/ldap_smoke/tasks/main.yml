@@ -1,0 +1,79 @@
+---
+- name: Initialize LDAP smoke result
+  ansible.builtin.set_fact:
+    smoke_ldap:
+      ok: false
+      skipped: false
+      error: ""
+      domain: {}
+      users: []
+      groups: []
+      missing_users: []
+      missing_groups: []
+
+- name: Require LDAP bind password
+  ansible.builtin.set_fact:
+    smoke_ldap: "{{ smoke_ldap | combine({'error': 'LDAP_BIND_PASSWORD is not set'}) }}"
+  when: LDAP_BIND_PASSWORD is not defined or LDAP_BIND_PASSWORD | length == 0
+
+- name: End LDAP smoke when bind password is missing
+  ansible.builtin.meta: end_host
+  when: smoke_ldap.error | default('') | length > 0
+
+- name: Install openldap clients for ldapsearch
+  ansible.builtin.dnf:
+    name: openldap-clients
+    state: present
+  when:
+    - ansible_os_family == 'RedHat'
+    - ansible_distribution_major_version | string == '9'
+  failed_when: false
+
+- name: Copy LDAP listing helper
+  ansible.builtin.copy:
+    src: ldap_list.py
+    dest: /tmp/iw-ldap-smoke-list.py
+    mode: "0755"
+
+- name: List LDAP domain, users, and groups on localhost
+  ansible.builtin.command:
+    argv:
+      - python3
+      - /tmp/iw-ldap-smoke-list.py
+      - "{{ ldap_local_uri }}"
+      - "{{ ldap_bind_dn }}"
+      - "{{ ldap_base_dn }}"
+      - "{{ ldap_people_ou }}"
+      - "{{ ldap_groups_ou }}"
+      - "{{ ldap_smoke_expected_users | join(',') }}"
+      - "{{ ldap_smoke_expected_groups | join(',') }}"
+  environment:
+    LDAP_BIND_PASSWORD: "{{ LDAP_BIND_PASSWORD }}"
+  register: ldap_smoke_list
+  changed_when: false
+  failed_when: false
+
+- name: Parse LDAP listing
+  ansible.builtin.set_fact:
+    smoke_ldap: "{{ smoke_ldap | combine(ldap_smoke_list.stdout | from_json, recursive=true) }}"
+  when: ldap_smoke_list.stdout | default('') is match('^\{')
+
+- name: Record LDAP listing parse failure
+  ansible.builtin.set_fact:
+    smoke_ldap: "{{ smoke_ldap | combine({'ok': false, 'error': 'ldap_list.py produced no JSON (rc=' ~ (ldap_smoke_list.rc | default('?') | string) ~ ')'}) }}"
+  when: ldap_smoke_list.stdout | default('') is not match('^\{')
+
+- name: Remove LDAP listing helper
+  ansible.builtin.file:
+    path: /tmp/iw-ldap-smoke-list.py
+    state: absent
+
+- name: Display LDAP smoke listing
+  ansible.builtin.debug:
+    msg:
+      - "LDAP domain {{ smoke_ldap.domain.dn | default(ldap_base_dn) }} dc={{ smoke_ldap.domain.dc | default('') }} o={{ smoke_ldap.domain.o | default('') }}"
+      - "Users ({{ smoke_ldap.users | default([]) | length }}): {{ smoke_ldap.users | default([]) | map(attribute='uid') | list | join(', ') }}"
+      - "Groups ({{ smoke_ldap.groups | default([]) | length }}): {{ smoke_ldap.groups | default([]) | map(attribute='cn') | list | join(', ') }}"
+      - "Missing users: {{ smoke_ldap.missing_users | default([]) | join(', ') | default('(none)', true) }}"
+      - "Missing groups: {{ smoke_ldap.missing_groups | default([]) | join(', ') | default('(none)', true) }}"
+      - "LDAP smoke ok={{ smoke_ldap.ok }} {{ smoke_ldap.error | default('') }}"

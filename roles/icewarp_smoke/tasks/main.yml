@@ -1,0 +1,256 @@
+---
+- name: Initialize IceWarp smoke result
+  ansible.builtin.set_fact:
+    smoke_icewarp:
+      ok: false
+      skipped: false
+      error: ""
+      sync_ok: false
+      sync_log: ""
+      sync_line: ""
+      domain_export_ok: false
+      users: []
+      groups: []
+      missing_users: []
+      missing_groups: []
+
+- name: Require fixture user password
+  ansible.builtin.set_fact:
+    smoke_icewarp: "{{ smoke_icewarp | combine({'error': 'LDAP_USER_PASSWORD is not set'}) }}"
+  when: LDAP_USER_PASSWORD is not defined or LDAP_USER_PASSWORD | length == 0
+
+- name: Check IceWarp tool.sh
+  ansible.builtin.stat:
+    path: "{{ TOOL_CMD }}"
+  register: icewarp_smoke_tool
+
+- name: Record missing IceWarp install
+  ansible.builtin.set_fact:
+    smoke_icewarp: "{{ smoke_icewarp | combine({'error': 'IceWarp tool.sh not found at ' ~ TOOL_CMD}) }}"
+  when: not icewarp_smoke_tool.stat.exists | default(false)
+
+- name: End IceWarp smoke when prerequisites are missing
+  ansible.builtin.meta: end_host
+  when: smoke_icewarp.error | default('') | length > 0
+
+- name: Enable verbose ADSync logging
+  ansible.builtin.command:
+    argv:
+      - "{{ TOOL_CMD }}"
+      - set
+      - system
+      - c_system_adsynclogtype
+      - "{{ icewarp_adsync_logtype }}"
+  failed_when: false
+
+- name: Check IceWarp path.dat
+  ansible.builtin.stat:
+    path: "{{ icewarp_path_dat }}"
+  register: icewarp_smoke_path_dat_stat
+
+- name: Read IceWarp path.dat
+  ansible.builtin.slurp:
+    src: "{{ icewarp_path_dat }}"
+  register: icewarp_smoke_path_dat
+  when: icewarp_smoke_path_dat_stat.stat.exists | default(false)
+
+- name: Set ADSync log node-id prefix from path.dat line 4
+  ansible.builtin.set_fact:
+    icewarp_adsync_node_id: "{{ (_path_lines[3] | default('') | trim) if (_path_lines | length) > 3 else '' }}"
+  vars:
+    _path_lines: "{{ (icewarp_smoke_path_dat.content | default('') | b64decode).splitlines() if (icewarp_smoke_path_dat_stat.stat.exists | default(false)) else [] }}"
+
+- name: Create IceWarp smoke helper directory
+  ansible.builtin.file:
+    path: /tmp/iw-icewarp-smoke
+    state: directory
+    mode: "0755"
+
+- name: Copy IceWarp smoke helpers
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/tmp/iw-icewarp-smoke/{{ item }}"
+    mode: "0755"
+  loop:
+    - adsync_count.py
+    - imap_login.py
+    - wc_login.py
+    - summarize.py
+
+- name: Count ADSync finished lines before restart
+  ansible.builtin.command:
+    argv:
+      - python3
+      - /tmp/iw-icewarp-smoke/adsync_count.py
+      - "{{ icewarp_adsync_log_dir }}"
+      - "{{ icewarp_sync_domain }}"
+      - "{{ icewarp_adsync_node_id | default('') }}"
+  register: adsync_before
+  changed_when: false
+  failed_when: false
+
+- name: Restart IceWarp control to trigger directory sync
+  ansible.builtin.command:
+    argv:
+      - "{{ IW_INSTALL_PATH }}/icewarpd.sh"
+      - "--restart"
+      - control
+  register: iw_smoke_restart_control
+  failed_when: false
+
+- name: Restart all IceWarp services if control restart failed
+  ansible.builtin.command:
+    argv:
+      - "{{ IW_INSTALL_PATH }}/icewarpd.sh"
+      - "--restart"
+      - all
+  when: iw_smoke_restart_control.rc | default(1) != 0
+
+- name: Wait for a new ADSync domain-finished line
+  ansible.builtin.command:
+    argv:
+      - python3
+      - /tmp/iw-icewarp-smoke/adsync_count.py
+      - "{{ icewarp_adsync_log_dir }}"
+      - "{{ icewarp_sync_domain }}"
+      - "{{ icewarp_adsync_node_id | default('') }}"
+  register: adsync_wait
+  until: (adsync_wait.stdout.split('\t') | first | default('0', true) | int) > (adsync_before.stdout.split('\t') | first | default('0', true) | int)
+  retries: "{{ icewarp_smoke_wait_retries }}"
+  delay: "{{ icewarp_smoke_wait_delay }}"
+  failed_when: false
+  changed_when: false
+
+- name: Record ADSync wait result
+  ansible.builtin.set_fact:
+    smoke_icewarp: "{{ smoke_icewarp | combine({'sync_ok': _sync_ok | bool, 'sync_log': _sync_log, 'sync_line': _sync_line, 'error': ('' if (_sync_ok | bool) else 'ADSync finished line not seen for ' ~ icewarp_sync_domain)}) }}"
+  vars:
+    _wait_parts: "{{ (adsync_wait.stdout | default('')).split('\t') }}"
+    _sync_ok: "{{ (_wait_parts[0] | default('0', true) | int) > (adsync_before.stdout.split('\t') | first | default('0', true) | int) }}"
+    _sync_log: "{{ _wait_parts[1] | default('') }}"
+    _sync_line: "{{ _wait_parts[2:] | join('\t') }}"
+
+- name: Export IceWarp domain
+  ansible.builtin.command:
+    argv:
+      - "{{ TOOL_CMD }}"
+      - export
+      - domain
+      - "{{ icewarp_sync_domain }}"
+  register: iw_export_domain
+  changed_when: false
+  failed_when: false
+
+- name: Export IceWarp accounts in domain
+  ansible.builtin.command:
+    argv:
+      - "{{ TOOL_CMD }}"
+      - export
+      - account
+      - "*@{{ icewarp_sync_domain }}"
+      - u_name
+      - u_type
+      - u_authmode
+  register: iw_export_all
+  changed_when: false
+  failed_when: false
+
+- name: Export expected IceWarp users and groups
+  ansible.builtin.command:
+    argv:
+      - "{{ TOOL_CMD }}"
+      - export
+      - account
+      - "{{ item }}@{{ icewarp_sync_domain }}"
+      - u_name
+      - u_type
+      - u_authmode
+      - u_alias
+  loop: "{{ icewarp_smoke_expected_users + icewarp_smoke_expected_groups }}"
+  register: iw_export_each
+  changed_when: false
+  failed_when: false
+
+- name: IMAP LOGIN for expected users
+  ansible.builtin.command:
+    argv:
+      - python3
+      - /tmp/iw-icewarp-smoke/imap_login.py
+      - "{{ item }}@{{ icewarp_sync_domain }}"
+  environment:
+    IW_SMOKE_PASSWORD: "{{ LDAP_USER_PASSWORD }}"
+  loop: "{{ icewarp_smoke_expected_users }}"
+  register: iw_imap_each
+  changed_when: false
+  failed_when: false
+
+- name: WebClient login for expected users
+  ansible.builtin.command:
+    argv:
+      - python3
+      - /tmp/iw-icewarp-smoke/wc_login.py
+      - "{{ item }}@{{ icewarp_sync_domain }}"
+      - "{{ icewarp_webclient_base }}"
+  environment:
+    IW_SMOKE_PASSWORD: "{{ LDAP_USER_PASSWORD }}"
+  loop: "{{ icewarp_smoke_expected_users }}"
+  register: iw_wc_each
+  changed_when: false
+  failed_when: false
+
+- name: Write IceWarp smoke helper inputs
+  ansible.builtin.copy:
+    dest: /tmp/iw-icewarp-smoke/raw.json
+    mode: "0600"
+    content: "{{ _raw | to_nice_json }}"
+  vars:
+    _raw:
+      domain: "{{ icewarp_sync_domain }}"
+      expected_users: "{{ icewarp_smoke_expected_users }}"
+      expected_groups: "{{ icewarp_smoke_expected_groups }}"
+      export_domain_rc: "{{ iw_export_domain.rc | default(1) }}"
+      export_all: "{{ iw_export_all.stdout | default('') }}"
+      exports: "{{ iw_export_each.results | default([]) | map(attribute='stdout') | list }}"
+      export_rcs: "{{ iw_export_each.results | default([]) | map(attribute='rc') | list }}"
+      imap: "{{ iw_imap_each.results | default([]) | map(attribute='stdout') | list }}"
+      wc: "{{ iw_wc_each.results | default([]) | map(attribute='stdout') | list }}"
+      sync_ok: "{{ smoke_icewarp.sync_ok | bool }}"
+
+- name: Summarize IceWarp smoke results
+  ansible.builtin.command:
+    argv:
+      - python3
+      - /tmp/iw-icewarp-smoke/summarize.py
+      - /tmp/iw-icewarp-smoke/raw.json
+  register: iw_summary
+  changed_when: false
+  failed_when: false
+
+- name: Merge IceWarp smoke summary
+  ansible.builtin.set_fact:
+    smoke_icewarp: "{{ smoke_icewarp | combine(iw_summary.stdout | from_json, recursive=true) }}"
+  when: iw_summary.stdout | default('') is match('^\{')
+
+- name: Record summarize parse failure
+  ansible.builtin.set_fact:
+    smoke_icewarp: "{{ smoke_icewarp | combine({'ok': false, 'error': (smoke_icewarp.error | default('') ~ ' summarize failed').strip()}) }}"
+  when: iw_summary.stdout | default('') is not match('^\{')
+
+- name: Remove IceWarp smoke helpers
+  ansible.builtin.file:
+    path: /tmp/iw-icewarp-smoke
+    state: absent
+
+- name: Display IceWarp smoke listing
+  ansible.builtin.debug:
+    msg:
+      - "IceWarp domain {{ icewarp_sync_domain }} export_ok={{ smoke_icewarp.domain_export_ok | default(false) }}"
+      - "ADSync ok={{ smoke_icewarp.sync_ok }} log={{ smoke_icewarp.sync_log | default('') }}"
+      - "{{ smoke_icewarp.sync_line | default('') }}"
+      - "Users: {{ smoke_icewarp.users | default([]) | map(attribute='email') | list | join(', ') }}"
+      - "Groups: {{ smoke_icewarp.groups | default([]) | map(attribute='email') | list | join(', ') }}"
+      - "IMAP: {{ smoke_icewarp.users | default([]) | selectattr('imap_ok') | map(attribute='email') | list | join(', ') }}"
+      - "WebClient: {{ smoke_icewarp.users | default([]) | selectattr('webclient_ok') | map(attribute='email') | list | join(', ') }}"
+      - "Missing users: {{ smoke_icewarp.missing_users | default([]) | join(', ') }}"
+      - "Missing groups: {{ smoke_icewarp.missing_groups | default([]) | join(', ') }}"
+      - "IceWarp smoke ok={{ smoke_icewarp.ok }} {{ smoke_icewarp.error | default('') }}"

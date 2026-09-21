@@ -15,6 +15,8 @@ credentials.txt
 
 # Runtime / local artifacts
 **/.deploy-state
+reports/*
+!reports/.gitkeep
 
 # OS / editor
 .DS_Store

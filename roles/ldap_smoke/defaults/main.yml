@@ -1,0 +1,10 @@
+---
+ldap_local_uri: "{{ ldap_uri_scheme }}://127.0.0.1:{{ ldap_listen_port }}"
+ldap_smoke_expected_users:
+  - alice
+  - bob
+  - carol
+  - dave
+ldap_smoke_expected_groups:
+  - sales
+  - engineering

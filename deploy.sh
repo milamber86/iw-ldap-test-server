@@ -31,6 +31,7 @@ SKIP_DOCKER="${SKIP_DOCKER:-0}"
 SKIP_LDAP="${SKIP_LDAP:-0}"
 SKIP_LDAP_DATA="${SKIP_LDAP_DATA:-0}"
 SKIP_ICEWARP="${SKIP_ICEWARP:-0}"
+SKIP_SMOKE="${SKIP_SMOKE:-0}"
 EXTRA_VARS=()
 
 if [[ -n "${PLATFORM:-}" ]]; then
@@ -48,6 +49,8 @@ fi
 if [[ -n "${IW_SYNC_DOMAIN:-}" ]]; then
   EXTRA_VARS+=(-e "icewarp_sync_domain=${IW_SYNC_DOMAIN}")
 fi
+
+EXTRA_VARS+=(-e "smoke_site=${SITE}")
 
 if [[ ! -d "${INVENTORY}" ]]; then
   echo "Inventory not found: ${INVENTORY}"
@@ -148,6 +151,29 @@ if [[ "${SKIP_ICEWARP}" == "1" ]]; then
   echo "==== Skipping icewarp (SKIP_ICEWARP=1) ===="
 else
   run_stage icewarp playbooks/icewarp.yml
+fi
+
+if [[ "${SKIP_SMOKE}" == "1" ]]; then
+  echo "==== Skipping smoke (SKIP_SMOKE=1) ===="
+else
+  if [[ "${RESUME}" == "1" ]] && stage_done smoke; then
+    echo "==== Skipping smoke (already ok) ===="
+  else
+    echo "==== Running smoke: playbooks/smoke.yml ===="
+    set +e
+    # shellcheck disable=SC2086
+    ${AP} "${EXTRA_VARS[@]}" playbooks/smoke.yml
+    smoke_rc=$?
+    set -e
+    if [[ -f "${SCRIPT_DIR}/reports/.latest" ]]; then
+      echo "Smoke report: $(cat "${SCRIPT_DIR}/reports/.latest")"
+    fi
+    if [[ "${smoke_rc}" -eq 0 ]]; then
+      mark_stage_ok smoke
+    else
+      exit "${smoke_rc}"
+    fi
+  fi
 fi
 
 echo "Deploy finished for site=${SITE}."
