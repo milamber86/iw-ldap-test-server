@@ -1,19 +1,23 @@
 <DOMAIN>
-    <DOMAIN>{{ ldap_mail_domain }}</DOMAIN>
+    <DOMAIN>{{ icewarp_sync_domain }}</DOMAIN>
     <ISGROUP>0</ISGROUP>
     <ACTIVE>1</ACTIVE>
     <HOST>{{ icewarp_ldap_url }}</HOST>
     <USER>{{ ldap_bind_dn }}</USER>
     <PASS>{{ LDAP_BIND_PASSWORD }}</PASS>
     <SECHOST/>
-    <HOSTDOMAINACTIVE>0</HOSTDOMAINACTIVE>
+    <HOSTDOMAINACTIVE>{{ icewarp_hostdomain_active }}</HOSTDOMAINACTIVE>
+{% if icewarp_hostdomain | length > 0 %}
+    <HOSTDOMAIN>{{ icewarp_hostdomain }}</HOSTDOMAIN>
+{% else %}
     <HOSTDOMAIN/>
+{% endif %}
     <HOSTLOOKUPTYPE>0</HOSTLOOKUPTYPE>
     <EXTERNALSYNC>0</EXTERNALSYNC>
     <EXTERNALSYNCLIB/>
     <DN>{{ ldap_base_dn }}</DN>
     <SYNCACCOUNTS>1</SYNCACCOUNTS>
-    <ACCOUNTFILTERS>(&amp;(objectClass=inetOrgPerson)(mail=*@{{ ldap_mail_domain }}*))</ACCOUNTFILTERS>
+    <ACCOUNTFILTERS>{{ icewarp_account_filter | e }}</ACCOUNTFILTERS>
     <SYNCGROUPS>1</SYNCGROUPS>
     <GROUPFILTERS>(objectClass=groupOfNames)</GROUPFILTERS>
     <SYNCMAILINGLISTS>0</SYNCMAILINGLISTS>

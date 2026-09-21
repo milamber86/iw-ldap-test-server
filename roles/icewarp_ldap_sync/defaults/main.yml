@@ -1,3 +1,6 @@
 ---
 icewarp_adsync_logtype: 3
 icewarp_restart_args: "--restart control"
+icewarp_path_dat: "{{ IW_INSTALL_PATH }}/path.dat"
+icewarp_sync_mode: onetoone
+icewarp_sync_domain: "{{ ldap_mail_domain }}"

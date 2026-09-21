@@ -4,6 +4,7 @@
 #   SITE=infralab ./deploy.sh                                 # prepared EL9 hosts, native 389-ds
 #   SITE=infralab PLATFORM=kvm ./deploy.sh                    # create Infralab EL9 VM first
 #   SITE=infralab LDAP_MODE=docker ./deploy.sh                # 389-ds in a container
+#   IW_SYNC_MODE=crossdomain IW_SYNC_DOMAIN=iwldaptest.loc SITE=infralab ./deploy.sh
 #   SKIP_PROVISION=1 SKIP_ICEWARP=1 SITE=infralab ./deploy.sh
 #
 # Resume unfinished stages (skips stages recorded in inventory/<SITE>/.deploy-state):
@@ -38,6 +39,14 @@ fi
 
 if [[ -n "${LDAP_MODE:-}" ]]; then
   EXTRA_VARS+=(-e "ldap_install_mode=${LDAP_MODE}")
+fi
+
+if [[ -n "${IW_SYNC_MODE:-}" ]]; then
+  EXTRA_VARS+=(-e "icewarp_sync_mode=${IW_SYNC_MODE}")
+fi
+
+if [[ -n "${IW_SYNC_DOMAIN:-}" ]]; then
+  EXTRA_VARS+=(-e "icewarp_sync_domain=${IW_SYNC_DOMAIN}")
 fi
 
 if [[ ! -d "${INVENTORY}" ]]; then

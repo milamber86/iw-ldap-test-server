@@ -7,9 +7,13 @@
       - ldap_bind_dn | length > 0
       - LDAP_BIND_PASSWORD is defined
       - LDAP_BIND_PASSWORD | length > 0
+      - icewarp_sync_mode in ['onetoone', 'crossdomain']
+      - icewarp_sync_domain | length > 0
+      - icewarp_sync_mode != 'crossdomain' or icewarp_sync_domain != ldap_mail_domain
     fail_msg: >-
-      IceWarp sync needs ldap_mail_domain, ldap_host (ldap_hosts in inventory),
-      ldap_bind_dn, and LDAP_BIND_PASSWORD.
+      IceWarp sync needs ldap_mail_domain, ldap_host, ldap_bind_dn, LDAP_BIND_PASSWORD,
+      icewarp_sync_mode (onetoone|crossdomain), and icewarp_sync_domain.
+      Cross-domain mode requires icewarp_sync_domain != ldap_mail_domain.
 
 - name: Check IceWarp tool.sh
   ansible.builtin.stat:
@@ -21,13 +25,43 @@
     msg: "IceWarp tool.sh not found at {{ TOOL_CMD }}. This role configures an existing IceWarp server."
   when: not icewarp_tool.stat.exists
 
+- name: Check IceWarp path.dat
+  ansible.builtin.stat:
+    path: "{{ icewarp_path_dat }}"
+  register: icewarp_path_dat_stat
+
+- name: Read IceWarp path.dat
+  ansible.builtin.slurp:
+    src: "{{ icewarp_path_dat }}"
+  register: icewarp_path_dat_content
+  when: icewarp_path_dat_stat.stat.exists | default(false)
+
+- name: Set IceWarp config directory
+  ansible.builtin.set_fact:
+    icewarp_config_dir: "{{ IW_CONFIG_PATH }}"
+
+- name: Override IceWarp config directory from path.dat line 1
+  ansible.builtin.set_fact:
+    icewarp_config_dir: "{{ _path_dat_line1 }}"
+  when:
+    - icewarp_path_dat_stat.stat.exists | default(false)
+    - _path_dat_line1 | length > 0
+  vars:
+    _path_dat_line1: "{{ (icewarp_path_dat_content.content | default('') | b64decode).splitlines() | first | default('') | trim }}"
+
+- name: Derive IceWarp HOSTDOMAIN sync settings
+  ansible.builtin.set_fact:
+    icewarp_hostdomain_active: "{{ 1 if icewarp_sync_mode == 'crossdomain' else 0 }}"
+    icewarp_hostdomain: "{{ ldap_mail_domain if icewarp_sync_mode == 'crossdomain' else '' }}"
+    icewarp_account_filter: "(&(objectClass=inetOrgPerson)(mail=*@{{ ldap_mail_domain }}*))"
+
 - name: Create IceWarp domain
   ansible.builtin.command:
     argv:
       - "{{ TOOL_CMD }}"
       - create
       - domain
-      - "{{ ldap_mail_domain }}"
+      - "{{ icewarp_sync_domain }}"
   register: iw_create_domain
   changed_when: iw_create_domain.rc == 0
   failed_when:
@@ -52,13 +86,13 @@
     argv:
       - python3
       - /tmp/iw-ldap-merge-syncad.py
-      - "{{ IW_CONFIG_PATH }}/syncad.dat"
+      - "{{ icewarp_config_dir }}/syncad.dat"
       - /tmp/iw-ldap-syncad-domain.xml
-      - "{{ ldap_mail_domain }}"
+      - "{{ icewarp_sync_domain }}"
 
 - name: Set syncad.dat permissions
   ansible.builtin.file:
-    path: "{{ IW_CONFIG_PATH }}/syncad.dat"
+    path: "{{ icewarp_config_dir }}/syncad.dat"
     owner: icewarp
     group: icewarp
     mode: "0644"
@@ -110,6 +144,8 @@
 - name: Show IceWarp sync summary
   ansible.builtin.debug:
     msg: >-
-      Domain {{ ldap_mail_domain }} syncs one-way from {{ icewarp_ldap_url }}
-      ({{ ldap_bind_dn }}). Synced accounts get u_authmode=2 (LDAP bind).
+      Mode {{ icewarp_sync_mode }}: LDAP {{ ldap_mail_domain }} -> IceWarp {{ icewarp_sync_domain }}
+      from {{ icewarp_ldap_url }} ({{ ldap_bind_dn }}).
+      syncad.dat={{ icewarp_config_dir }}/syncad.dat.
+      Synced accounts get u_authmode=2 (LDAP bind).
       IceWarp polls about every five minutes; logs under {{ IW_INSTALL_PATH }}/logs/adsync/.

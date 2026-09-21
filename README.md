@@ -66,6 +66,9 @@ Site vars live in [`inventory/infralab/group_vars/all.yml`](inventory/infralab/g
 # New Infralab EL9 VM + native 389-ds + IceWarp (if icewarp_hosts is filled)
 SITE=infralab PLATFORM=kvm LDAP_MODE=native ./deploy.sh
 
+# Cross-domain: LDAP ldaptest.loc users created as *@iwldaptest.loc in IceWarp
+IW_SYNC_MODE=crossdomain IW_SYNC_DOMAIN=iwldaptest.loc SITE=infralab ./deploy.sh
+
 # Prepared EL9, LDAP in Docker, no IceWarp
 SKIP_PROVISION=1 SKIP_ICEWARP=1 LDAP_MODE=docker SITE=infralab ./deploy.sh
 
@@ -91,6 +94,8 @@ RESET_DEPLOY_STATE=1 SITE=infralab ./deploy.sh
 | `SKIP_LDAP` | Skip 389-ds install |
 | `SKIP_LDAP_DATA` | Skip DIT / fixture users |
 | `SKIP_ICEWARP` | Skip IceWarp `syncad.dat` merge |
+| `IW_SYNC_MODE` | `onetoone` (default) or `crossdomain` |
+| `IW_SYNC_DOMAIN` | IceWarp target domain (default: `ldap_mail_domain`; required to differ in `crossdomain`) |
 | `RESUME` | Skip stages listed in `inventory/<SITE>/.deploy-state` |
 | `RESET_DEPLOY_STATE` | Delete `.deploy-state` before running |
 | `VAULT_PASS` | Vault password file (default `../.vault-pass`) |
@@ -121,10 +126,18 @@ Fixture user password is `LDAP_USER_PASSWORD`. Bind password is `LDAP_BIND_PASSW
 
 When `icewarp_hosts` is non-empty, the last stage:
 
-- Creates domain `ldap_mail_domain` if missing (`tool.sh create domain`)
-- Merges one `<DOMAIN>` node into `/opt/icewarp/config/syncad.dat` (other domains are kept)
+- Creates IceWarp domain `icewarp_sync_domain` if missing (`tool.sh create domain`). Default is `ldap_mail_domain` (1:1).
+- Merges one `<DOMAIN>` node into `syncad.dat` keyed by that IceWarp domain (other domains are kept). Switching 1:1 vs cross-domain does not delete the other domain’s block. Config dir is `/opt/icewarp/config` unless `/opt/icewarp/path.dat` exists with a non-empty path on line 1, in which case that path is used.
 - Sets `c_system_adsynclogtype=3` and keeps vCard sync enabled
 - Restarts IceWarp control (falls back to `--restart all`)
+
+Two sync modes (`icewarp_sync_mode` / `IW_SYNC_MODE`):
+
+**1:1** (`onetoone`, default): IceWarp domain equals the LDAP mail domain. `HOSTDOMAINACTIVE=0`, empty `HOSTDOMAIN`. Example: LDAP `mail=*@ldaptest.loc` → IceWarp `*@ldaptest.loc`.
+
+**Cross-domain** (`crossdomain`): IceWarp domain is `icewarp_sync_domain` / `IW_SYNC_DOMAIN`; LDAP filter still matches `mail=*@ldap_mail_domain*`; `HOSTDOMAINACTIVE=1` and `HOSTDOMAIN` is the LDAP mail domain so IceWarp rewrites addresses. Example: LDAP `ldaptest.loc` → IceWarp `iwldaptest.loc`.
+
+ACCOUNTFILTERS always search the LDAP source domain. The `&` in the LDAP filter is XML-escaped as `&amp;` in `syncad.dat`.
 
 Sync is **LDAP → IceWarp only**:
 
