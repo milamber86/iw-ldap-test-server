@@ -14,10 +14,17 @@
       missing_users: []
       missing_groups: []
 
-- name: Require fixture user password
+- name: Collect expected users missing a password
   ansible.builtin.set_fact:
-    smoke_icewarp: "{{ smoke_icewarp | combine({'error': 'LDAP_USER_PASSWORD is not set'}) }}"
-  when: LDAP_USER_PASSWORD is not defined or LDAP_USER_PASSWORD | length == 0
+    _smoke_uids_missing_password: "{{ (_smoke_uids_missing_password | default([])) + [item] }}"
+  when: (LDAP_USER_PASSWORDS[item] | default(LDAP_USER_PASSWORD | default(''), true)) | length == 0
+  loop: "{{ icewarp_smoke_expected_users }}"
+  no_log: true
+
+- name: Require resolved fixture user passwords
+  ansible.builtin.set_fact:
+    smoke_icewarp: "{{ smoke_icewarp | combine({'error': 'Missing password for uid(s): ' ~ (_smoke_uids_missing_password | default([]) | join(', '))}) }}"
+  when: (_smoke_uids_missing_password | default([]) | length) > 0
 
 - name: Check IceWarp tool.sh
   ansible.builtin.stat:
@@ -178,7 +185,7 @@
       - /tmp/iw-icewarp-smoke/imap_login.py
       - "{{ item }}@{{ icewarp_sync_domain }}"
   environment:
-    IW_SMOKE_PASSWORD: "{{ LDAP_USER_PASSWORD }}"
+    IW_SMOKE_PASSWORD: "{{ LDAP_USER_PASSWORDS[item] | default(LDAP_USER_PASSWORD | default(''), true) }}"
     LANG: C.UTF-8
     LC_ALL: C.UTF-8
     PYTHONUTF8: "1"
@@ -195,7 +202,7 @@
       - "{{ item }}@{{ icewarp_sync_domain }}"
       - "{{ icewarp_webclient_base }}"
   environment:
-    IW_SMOKE_PASSWORD: "{{ LDAP_USER_PASSWORD }}"
+    IW_SMOKE_PASSWORD: "{{ LDAP_USER_PASSWORDS[item] | default(LDAP_USER_PASSWORD | default(''), true) }}"
     LANG: C.UTF-8
     LC_ALL: C.UTF-8
     PYTHONUTF8: "1"

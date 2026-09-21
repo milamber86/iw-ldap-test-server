@@ -126,7 +126,7 @@ dc=ldaptest,dc=loc
     uid=iwsync                    IceWarp bind account (read ACI + operational attrs)
 ```
 
-Fixture user password is `LDAP_USER_PASSWORD`. Bind password is `LDAP_BIND_PASSWORD`.
+Fixture user passwords default to `LDAP_USER_PASSWORD`. Override per uid with `LDAP_USER_PASSWORDS` in `vault.yml` (for example different special-character strings in one run). Bind password is `LDAP_BIND_PASSWORD`. If every fixture uid is in `LDAP_USER_PASSWORDS`, `LDAP_USER_PASSWORD` may be omitted. Quote YAML values that contain spaces or special characters.
 
 ## IceWarp sync and auth
 
@@ -174,7 +174,7 @@ On each IceWarp host:
 2. Reads the node-id prefix from line 4 of `/opt/icewarp/path.dat` (log name e.g. `/opt/icewarp/logs/adsync/303120260921-00.log`)
 3. Restarts IceWarp control and waits (up to ~15 minutes) for a **new** `Synchronizing domain <icewarp_sync_domain> finished` line
 4. `tool.sh export domain` and `tool.sh export account user@domain` for expected users (`u_type=0`, `u_authmode=2`) and groups (`u_type=7`)
-5. IMAP LOGIN as `{uid}@{icewarp_sync_domain}` with `LDAP_USER_PASSWORD` (not admin impersonation)
+5. IMAP LOGIN as `{uid}@{icewarp_sync_domain}` with that uid’s password (`LDAP_USER_PASSWORDS[uid]` or `LDAP_USER_PASSWORD`; not admin impersonation)
 6. WebClient login with that same user password: `getauthtoken` on `https://127.0.0.1/icewarpapi/`, then `/webmail/?atoken=` and `webmail.php` session auth
 
 Ansible prints the listings. A Markdown report is always written on the control node under `reports/smoke-<site>-<timestamp>.md`; the play and `deploy.sh` print that path when finished.

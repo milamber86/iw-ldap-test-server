@@ -1,14 +1,27 @@
 ---
-- name: Require LDAP bind and user passwords
+- name: Start fixture password coverage list
+  ansible.builtin.set_fact:
+    _fixture_uids_missing_password: []
+
+- name: Collect fixture uids missing a password
+  ansible.builtin.set_fact:
+    _fixture_uids_missing_password: "{{ _fixture_uids_missing_password + [item.uid] }}"
+  when: (LDAP_USER_PASSWORDS[item.uid] | default(LDAP_USER_PASSWORD | default(''), true)) | length == 0
+  loop: "{{ ldap_fixture_users }}"
+  no_log: true
+
+- name: Require LDAP bind and resolved fixture user passwords
   ansible.builtin.assert:
     that:
       - LDAP_DM_PASSWORD is defined
       - LDAP_DM_PASSWORD | length > 0
       - LDAP_BIND_PASSWORD is defined
       - LDAP_BIND_PASSWORD | length > 0
-      - LDAP_USER_PASSWORD is defined
-      - LDAP_USER_PASSWORD | length > 0
-    fail_msg: "Set LDAP_DM_PASSWORD, LDAP_BIND_PASSWORD, and LDAP_USER_PASSWORD in vault.yml"
+      - _fixture_uids_missing_password | length == 0
+    fail_msg: >-
+      Set LDAP_DM_PASSWORD and LDAP_BIND_PASSWORD in vault.yml.
+      Each fixture uid needs LDAP_USER_PASSWORDS[uid] or LDAP_USER_PASSWORD.
+      Missing: {{ _fixture_uids_missing_password | join(', ') }}
 
 - name: Ensure python-ldap is available for community.general LDAP modules
   ansible.builtin.dnf:
@@ -118,7 +131,7 @@
       displayName: "{{ item.givenName }} {{ item.sn }}"
       title: "{{ item.title }}"
       telephoneNumber: "{{ item.telephoneNumber }}"
-      userPassword: "{{ LDAP_USER_PASSWORD }}"
+      userPassword: "{{ LDAP_USER_PASSWORDS[item.uid] | default(LDAP_USER_PASSWORD | default(''), true) }}"
     _person_attrs: "{{ _person_base | combine({'mail': item.mail} if item.mail | length > 0 else {}) }}"
   no_log: true
 
@@ -140,7 +153,7 @@
       displayName: "{{ item.givenName }} {{ item.sn }}"
       title: "{{ item.title }}"
       telephoneNumber: "{{ item.telephoneNumber }}"
-      userPassword: "{{ LDAP_USER_PASSWORD }}"
+      userPassword: "{{ LDAP_USER_PASSWORDS[item.uid] | default(LDAP_USER_PASSWORD | default(''), true) }}"
     _person_attrs: "{{ _person_base | combine({'mail': item.mail} if item.mail | length > 0 else {}) }}"
   no_log: true
 

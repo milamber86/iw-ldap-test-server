@@ -30,6 +30,9 @@ ldap_uri_scheme: "{{ 'ldaps' if ldap_use_ldaps | bool else 'ldap' }}"
 ldap_listen_port: "{{ ldap_ldaps_port if ldap_use_ldaps | bool else ldap_port }}"
 icewarp_ldap_url: "{{ ldap_uri_scheme }}://{{ ldap_host }}:{{ ldap_listen_port }}"
 
+# Optional per-uid fixture passwords (vault). Empty = use LDAP_USER_PASSWORD.
+LDAP_USER_PASSWORDS: {}
+
 IW_INSTALL_PATH: /opt/icewarp
 TOOL_CMD: "{{ IW_INSTALL_PATH }}/tool.sh"
 IW_CONFIG_PATH: "{{ IW_INSTALL_PATH }}/config"

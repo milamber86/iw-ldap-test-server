@@ -15,8 +15,18 @@ LDAP_DM_PASSWORD: "ChangeMe-DM-Pass1"
 # IceWarp bind account (uid=iwsync,ou=services,...)
 LDAP_BIND_PASSWORD: "ChangeMe-Bind-Pass1"
 
-# Password for fixture inetOrgPerson accounts (alice, bob, carol, dave, nomail)
+# Default password for fixture inetOrgPerson accounts (alice, bob, carol, dave, nomail)
+# when the uid is not in LDAP_USER_PASSWORDS. Quote values that contain YAML specials.
 LDAP_USER_PASSWORD: "ChangeMe-User-Pass1"
+
+# Optional per-uid overrides (omit a uid to use LDAP_USER_PASSWORD).
+# LDAP_USER_PASSWORD may be empty if every fixture uid is listed here.
+# LDAP_USER_PASSWORDS:
+#   alice: "Gäöüß-User-Pass1"
+#   bob: "Pass!@#$%^&*()"
+#   carol: "space and 'quotes'"
+#   dave: "slash/backslash\\end"
+#   nomail: "ChangeMe-User-Pass1"
 
 # Optional — Ansible SSH to managed hosts (default: root + key, no become)
 # ANSIBLE_SSH_USER: "root"
