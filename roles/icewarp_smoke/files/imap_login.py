@@ -16,23 +16,18 @@ def imap_quote(value: str) -> str:
 
 def tagged_login(host: str, port: int, email: str, password: str, use_ssl: bool, timeout: float = 15.0) -> tuple[bool, str]:
     last_err = ""
-    for quoted in (True, False):
-        if not quoted and _needs_imap_quotes(email, password):
+    for mode in ("raw", "quoted", "literal"):
+        if mode == "raw" and ("\r" in password or "\n" in password):
             continue
-        ok, err = _login_once(host, port, email, password, use_ssl, timeout, quoted=quoted)
+        ok, err = _login_once(host, port, email, password, use_ssl, timeout, mode)
         if ok:
             return True, ""
         last_err = err
     return False, last_err
 
 
-def _needs_imap_quotes(email: str, password: str) -> bool:
-    special = set(' \t"%\\()')
-    return any(ch in special for ch in email + password)
-
-
 def _login_once(
-    host: str, port: int, email: str, password: str, use_ssl: bool, timeout: float, quoted: bool
+    host: str, port: int, email: str, password: str, use_ssl: bool, timeout: float, mode: str
 ) -> tuple[bool, str]:
     raw = socket.create_connection((host, port), timeout=timeout)
     sock: socket.socket
@@ -45,9 +40,17 @@ def _login_once(
         greeting = _recv_line(sock, timeout)
         if not greeting.upper().startswith("* OK"):
             return False, f"{port} greeting {greeting[:120]}"
-        user = imap_quote(email) if quoted else email
-        pwd = imap_quote(password) if quoted else password
-        sock.sendall(f"A1 LOGIN {user} {pwd}\r\n".encode("utf-8"))
+        pwd_bytes = password.encode("utf-8")
+        if mode == "raw":
+            sock.sendall(f"A1 LOGIN {email} {password}\r\n".encode("utf-8"))
+        elif mode == "quoted":
+            sock.sendall(f"A1 LOGIN {imap_quote(email)} {imap_quote(password)}\r\n".encode("utf-8"))
+        else:
+            sock.sendall(f"A1 LOGIN {email} {{{len(pwd_bytes)}}}\r\n".encode("ascii"))
+            cont = _recv_line(sock, timeout)
+            if not cont.startswith("+"):
+                return False, f"{port} literal {cont[:120]}"
+            sock.sendall(pwd_bytes + b"\r\n")
         replies: list[str] = []
         while True:
             line = _recv_line(sock, timeout)
@@ -63,8 +66,8 @@ def _login_once(
         if re.match(r"A1 OK\b", tagged, re.I) or "OK LOGIN" in tagged.upper():
             return True, ""
         if re.match(r"A1 NO\b", tagged, re.I) or "NO LOGIN" in blob.upper():
-            return False, f"{port} NO LOGIN"
-        return False, f"{port} {tagged or blob}"[:200]
+            return False, f"{port} NO LOGIN {mode}"
+        return False, f"{port} {mode} {tagged or blob}"[:200]
     finally:
         try:
             sock.close()
