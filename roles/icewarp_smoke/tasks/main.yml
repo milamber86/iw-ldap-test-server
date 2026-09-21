@@ -179,6 +179,9 @@
       - "{{ item }}@{{ icewarp_sync_domain }}"
   environment:
     IW_SMOKE_PASSWORD: "{{ LDAP_USER_PASSWORD }}"
+    LANG: C.UTF-8
+    LC_ALL: C.UTF-8
+    PYTHONUTF8: "1"
   loop: "{{ icewarp_smoke_expected_users }}"
   register: iw_imap_each
   changed_when: false
@@ -193,6 +196,9 @@
       - "{{ icewarp_webclient_base }}"
   environment:
     IW_SMOKE_PASSWORD: "{{ LDAP_USER_PASSWORD }}"
+    LANG: C.UTF-8
+    LC_ALL: C.UTF-8
+    PYTHONUTF8: "1"
   loop: "{{ icewarp_smoke_expected_users }}"
   register: iw_wc_each
   changed_when: false

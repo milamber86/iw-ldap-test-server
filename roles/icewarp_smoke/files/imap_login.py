@@ -1,88 +1,109 @@
 #!/usr/bin/env python3
-"""IMAP LOGIN with the real user password via curl (143 then 993)."""
+"""IMAP LOGIN with the real user password on localhost (UTF-8 LOGIN like telnet)."""
 from __future__ import annotations
 
 import json
 import os
-import subprocess
+import re
+import socket
+import ssl
 import sys
 
 
-def curl_imap(url: str, email: str, password: str, extra: list[str]) -> tuple[int, str]:
-    proc = subprocess.run(
-        [
-            "curl",
-            "-sS",
-            "--max-time",
-            "15",
-            *extra,
-            "--url",
-            url,
-            "--user",
-            f"{email}:{password}",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    out = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
-    return proc.returncode, out
+def imap_quote(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def looks_ok(rc: int, text: str) -> bool:
-    upper = text.upper()
-    if "NO LOGIN" in upper or "AUTHENTICATIONFAILED" in upper:
-        return False
-    return rc == 0
+def tagged_login(host: str, port: int, email: str, password: str, use_ssl: bool, timeout: float = 15.0) -> tuple[bool, str]:
+    last_err = ""
+    for quoted in (True, False):
+        if not quoted and _needs_imap_quotes(email, password):
+            continue
+        ok, err = _login_once(host, port, email, password, use_ssl, timeout, quoted=quoted)
+        if ok:
+            return True, ""
+        last_err = err
+    return False, last_err
 
 
-def imaplib_login(email: str, password: str) -> dict:
-    import imaplib
-    import ssl
+def _needs_imap_quotes(email: str, password: str) -> bool:
+    special = set(' \t"%\\()')
+    return any(ch in special for ch in email + password)
 
-    try:
-        client = imaplib.IMAP4("127.0.0.1", 143, timeout=15)
-        typ, _data = client.login(email, password)
-        try:
-            client.logout()
-        except Exception:
-            pass
-        if typ == "OK":
-            return {"ok": True, "port": 143, "error": ""}
-    except Exception as exc:
-        err_plain = str(exc)
-    else:
-        err_plain = "LOGIN not OK"
-    try:
+
+def _login_once(
+    host: str, port: int, email: str, password: str, use_ssl: bool, timeout: float, quoted: bool
+) -> tuple[bool, str]:
+    raw = socket.create_connection((host, port), timeout=timeout)
+    sock: socket.socket
+    if use_ssl:
         ctx = ssl._create_unverified_context()
-        client = imaplib.IMAP4_SSL("127.0.0.1", 993, ssl_context=ctx, timeout=15)
-        typ, _data = client.login(email, password)
+        sock = ctx.wrap_socket(raw, server_hostname=host)
+    else:
+        sock = raw
+    try:
+        greeting = _recv_line(sock, timeout)
+        if not greeting.upper().startswith("* OK"):
+            return False, f"{port} greeting {greeting[:120]}"
+        user = imap_quote(email) if quoted else email
+        pwd = imap_quote(password) if quoted else password
+        sock.sendall(f"A1 LOGIN {user} {pwd}\r\n".encode("utf-8"))
+        replies: list[str] = []
+        while True:
+            line = _recv_line(sock, timeout)
+            replies.append(line)
+            if line.startswith("A1 ") or line.upper().startswith("A1 "):
+                break
         try:
-            client.logout()
-        except Exception:
+            sock.sendall(b"A2 LOGOUT\r\n")
+        except OSError:
             pass
-        if typ == "OK":
-            return {"ok": True, "port": 993, "error": ""}
-        return {"ok": False, "port": 0, "error": f"993 {typ}"}
-    except Exception as exc:
-        return {"ok": False, "port": 0, "error": f"{err_plain}; 993 {exc}"[:500]}
+        tagged = next((ln for ln in replies if ln.startswith("A1 ")), "")
+        blob = "\n".join(replies)
+        if re.match(r"A1 OK\b", tagged, re.I) or "OK LOGIN" in tagged.upper():
+            return True, ""
+        if re.match(r"A1 NO\b", tagged, re.I) or "NO LOGIN" in blob.upper():
+            return False, f"{port} NO LOGIN"
+        return False, f"{port} {tagged or blob}"[:200]
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
+def _recv_line(sock: socket.socket, timeout: float) -> str:
+    sock.settimeout(timeout)
+    buf = bytearray()
+    while True:
+        chunk = sock.recv(1)
+        if not chunk:
+            break
+        buf.extend(chunk)
+        if buf.endswith(b"\n"):
+            break
+        if len(buf) > 8192:
+            break
+    return buf.decode("utf-8", errors="replace").rstrip("\r\n")
 
 
 def try_login(email: str, password: str) -> dict:
-    rc, out = curl_imap("imap://127.0.0.1:143/INBOX", email, password, [])
-    if looks_ok(rc, out):
-        return {"ok": True, "port": 143, "error": ""}
-    err_143 = f"143 rc={rc} {out.strip()[:200]}"
+    try:
+        ok, err = tagged_login("127.0.0.1", 143, email, password, use_ssl=False)
+        if ok:
+            return {"ok": True, "port": 143, "error": ""}
+        err_143 = err or "143 login failed"
+    except Exception as exc:
+        err_143 = f"143 {exc}"
 
-    rc, out = curl_imap("imaps://127.0.0.1:993/INBOX", email, password, ["-k"])
-    if looks_ok(rc, out):
-        return {"ok": True, "port": 993, "error": ""}
-    err_993 = f"993 rc={rc} {out.strip()[:200]}"
-    fallback = imaplib_login(email, password)
-    if fallback["ok"]:
-        return fallback
-    extra = fallback.get("error", "")
-    return {"ok": False, "port": 0, "error": f"{err_143}; {err_993}; {extra}"[:500]}
+    try:
+        ok, err = tagged_login("127.0.0.1", 993, email, password, use_ssl=True)
+        if ok:
+            return {"ok": True, "port": 993, "error": ""}
+        err_993 = err or "993 login failed"
+    except Exception as exc:
+        err_993 = f"993 {exc}"
+    return {"ok": False, "port": 0, "error": f"{err_143}; {err_993}"[:500]}
 
 
 def main() -> int:
