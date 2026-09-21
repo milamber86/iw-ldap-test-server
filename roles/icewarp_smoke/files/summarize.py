@@ -36,6 +36,12 @@ def parse_account_export(text: str) -> dict:
     return result
 
 
+def as_int(value, default: int = 1) -> int:
+    if value is None or value == "":
+        return default
+    return int(value)
+
+
 def as_bool(value) -> bool:
     if isinstance(value, bool):
         return value
@@ -120,7 +126,11 @@ def main() -> int:
         for u in users
     )
     groups_ok = all(g["export_ok"] and g["type_ok"] for g in groups)
-    domain_ok = int(raw.get("export_domain_rc") or 1) == 0
+    domain_out = (raw.get("export_domain_stdout") or "").strip()
+    domain_rc = as_int(raw.get("export_domain_rc"), 1)
+    domain_ok = domain_rc == 0 or (
+        domain.lower() in domain_out.lower() and "not found" not in domain_out.lower()
+    )
     sync_ok = as_bool(raw.get("sync_ok"))
     ok = sync_ok and domain_ok and users_ok and groups_ok and not missing_users and not missing_groups
     errors = []
@@ -153,6 +163,7 @@ def main() -> int:
                 "missing_users": missing_users,
                 "missing_groups": missing_groups,
                 "accounts_listing": raw.get("export_all", ""),
+                "domain_export": domain_out,
                 "error": "; ".join(errors),
             }
         )

@@ -209,6 +209,7 @@
       expected_users: "{{ icewarp_smoke_expected_users }}"
       expected_groups: "{{ icewarp_smoke_expected_groups }}"
       export_domain_rc: "{{ iw_export_domain.rc | default(1) }}"
+      export_domain_stdout: "{{ iw_export_domain.stdout | default('') }}"
       export_all: "{{ iw_export_all.stdout | default('') }}"
       exports: "{{ iw_export_each.results | default([]) | map(attribute='stdout') | list }}"
       export_rcs: "{{ iw_export_each.results | default([]) | map(attribute='rc') | list }}"

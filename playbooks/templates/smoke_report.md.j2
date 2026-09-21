@@ -51,7 +51,7 @@ Missing groups: {{ smoke_ldap.missing_groups | default([]) | join(', ') | defaul
 IceWarp smoke skipped (no `icewarp_hosts` or not run).
 {% else %}
 - Domain: `{{ icewarp_sync_domain | default('') }}`
-- Domain export: {{ 'ok' if (smoke_icewarp.domain_export_ok | default(false) | bool) else 'FAIL' }}
+- Domain export: {{ 'ok' if (smoke_icewarp.domain_export_ok | default(false) | bool) else 'FAIL' }} (`{{ smoke_icewarp.domain_export | default('') | trim }}`)
 - ADSync finished: {{ 'ok' if (smoke_icewarp.sync_ok | default(false) | bool) else 'FAIL' }}
 - ADSync log: `{{ smoke_icewarp.sync_log | default('') }}`
 
