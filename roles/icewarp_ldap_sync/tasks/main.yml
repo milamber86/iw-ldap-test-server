@@ -47,12 +47,12 @@
     - icewarp_path_dat_stat.stat.exists | default(false)
     - _path_dat_line1 | length > 0
   vars:
-    _path_dat_line1: "{{ (icewarp_path_dat_content.content | default('') | b64decode).splitlines() | first | default('') | trim }}"
+    _path_dat_line1: "{{ (icewarp_path_dat_content.content | default('') | b64decode).splitlines() | first | default('') | trim | regex_replace('/+$', '') }}"
 
 - name: Derive IceWarp HOSTDOMAIN sync settings
   ansible.builtin.set_fact:
     icewarp_hostdomain_active: "{{ 1 if icewarp_sync_mode == 'crossdomain' else 0 }}"
-    icewarp_hostdomain: "{{ ldap_mail_domain if icewarp_sync_mode == 'crossdomain' else '' }}"
+    icewarp_hostdomain: "{{ (ldap_directory_domain | default(ldap_mail_domain, true)) ~ ';' ~ ldap_mail_domain if icewarp_sync_mode == 'crossdomain' else '' }}"
     icewarp_account_filter: "(&(objectClass=inetOrgPerson)(mail=*@{{ ldap_mail_domain }}*))"
 
 - name: Create IceWarp domain

@@ -4,3 +4,5 @@ icewarp_restart_args: "--restart control"
 icewarp_path_dat: "{{ IW_INSTALL_PATH }}/path.dat"
 icewarp_sync_mode: onetoone
 icewarp_sync_domain: "{{ ldap_mail_domain }}"
+# LDAP directory domain (HOSTDOMAIN first token). Mail domain is ldap_mail_domain.
+ldap_directory_domain: "{{ ldap_mail_domain }}"

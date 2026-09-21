@@ -6,10 +6,9 @@ ldap_install_mode: native
 
 ldap_mail_domain: ldaptest.loc
 ldap_base_dn: dc=ldaptest,dc=loc
-# IceWarp sync: onetoone (LDAP mail domain == IceWarp domain) or crossdomain
-# (LDAP mail domain rewritten to icewarp_sync_domain via HOSTDOMAIN).
-icewarp_sync_mode: onetoone
-icewarp_sync_domain: "{{ ldap_mail_domain }}"
+# IceWarp sync mode/domain live in role defaults (onetoone / ldap_mail_domain).
+# Override per site in inventory/<site>/group_vars/ — not here. Playbook-dir
+# group_vars outrank inventory, so a default here would block site crossdomain.
 ldap_instance_name: ldaptest
 ldap_root_dn: cn=Directory Manager
 ldap_port: 389

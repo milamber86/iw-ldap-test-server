@@ -7,8 +7,8 @@ ldap_install_mode: native
 ldap_mail_domain: ldaptest.loc
 ldap_base_dn: dc=ldaptest,dc=loc
 # IceWarp 1:1 sync (default). For cross-domain rewrite uncomment:
-# icewarp_sync_mode: crossdomain
-# icewarp_sync_domain: iwldaptest.loc
+icewarp_sync_mode: crossdomain
+icewarp_sync_domain: iwldaptest.loc
 
 # q35 virtio NIC name on Infralab AlmaLinux 9 template (single mgmt NIC).
 IFNAME_MGMT: enp1s0
